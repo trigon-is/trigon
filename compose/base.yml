@@ -1,20 +1,17 @@
-
 services:
-  claude:
-    image: claude-code-env
+  triquetra:
+    image: ${TRIQUETRA_IMAGE:-claude-code-env}
     working_dir: /app
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     environment:
-      # Force all config/cache/data to live under /settings (persisted)
       - HOME=/settings
       - XDG_CONFIG_HOME=/settings/config
       - XDG_CACHE_HOME=/settings/cache
       - XDG_DATA_HOME=/settings/data
       - PLAYWRIGHT_ENABLED=${PLAYWRIGHT_ENABLED:-0}
     volumes:
-      - ${PROJECT_ROOT}:/app   # set by the script below
+      - ${PROJECT_ROOT}:/app
       - ${CLAUDE_SETTINGS_DIR}:/settings
-      # Additional project directories (conditionally mounted)
       - type: bind
         source: ${PROJECT_ROOT_2:-/tmp/empty-volume-placeholder}
         target: /app_2
@@ -35,6 +32,8 @@ services:
         target: /app_5
         bind:
           create_host_path: true
-    stdin_open: true           # same as -i
-    tty: true                  # same as -t
-    network_mode: "bridge"     # explicit: outbound internet via NAT, no inbound ports
+    stdin_open: true
+    tty: true
+    # No network_mode override: default compose network provides NAT outbound
+    # with inter-container DNS (needed for litellm sidecar). Use compose/playwright.yml
+    # fragment to switch to host networking for Playwright MCP.
