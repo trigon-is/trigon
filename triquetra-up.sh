@@ -282,11 +282,11 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_REGION=${AWS_REGION:-us-east-1}
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:4000/health || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')\" 2>/dev/null || exit 1"]
       interval: 3s
       timeout: 5s
       retries: 20
-      start_period: 10s
+      start_period: 15s
 COMPOSE_EOF
   COMPOSE_FILES+=("-f" "$LITELLM_COMPOSE")
 fi
