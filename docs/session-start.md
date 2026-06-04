@@ -35,31 +35,56 @@ var injection in the launch script.
 
 ## Current state (as of 2026-06-04)
 
-### What exists and works
+### M0 — DONE (committed)
 
-- `/app` — working `claude-in-container` harness (claude-code, anthropic only)
-  - `claude-up.sh` — main launch script (Triquetra will generalise this)
-  - `Dockerfile` — dev mode image (Python/Django tools)
-  - `Dockerfile.security` — security mode image (nmap, gobuster, nuclei, Go tools)
-  - `compose.yml` / `compose.security.yml` — service definitions
-  - `security-claude-wrapper.sh` — mode context injection pattern
-  - Multi-project mounting, --playwright, --api, --prompt-file, --yolo all working
+Repo bootstrapped at `/home/bergurth/projects/Triquetra` (= `/app_4` inside container).
+- Skeleton directories created: `agents/claude-code/`, `modes/{dev,security,data}/`, `compose/`, `providers/`
+- Design docs moved to `docs/`
+- Reference implementation files copied from `/app` into correct locations
+- Root `README.md` written (quick-start, flags table, provider tier table, dir structure)
+- GitHub remote: **not yet set up** (skipped at M0, can be done any time with `gh repo create`)
 
-### What is designed and ready for implementation
+### M1 — DONE (committed, pre-testing)
 
-- `/app_4/` — Triquetra design documents + resolved schema
-  - `README.md` — project overview and quick start
-  - `providers.md` — full provider reference
-  - `agents.md` — agent comparison and adapter architecture
-  - `modes.md` — mode system and build strategy
-  - `pipelines.md` — external orchestration patterns
-  - `triquetra-architecture.md` — internal design and component breakdown
-  - `triquetra-feasibility.md` — original feasibility analysis with options A–D
-  - `v3_triquetra_use_case_analysis.md` — JSP V2/V3 use-case analysis
-  - `providers/` — **provider YAML files, fully written and schema resolved**
-    - `schema.md` — canonical field reference + parsing algorithm
-    - `anthropic.yml`, `deepseek.yml`, `openrouter.yml`, `ollama.yml`, `openai.yml`, `bedrock.yml`
-    - `custom-example.yml` — template for user-defined providers
+`triquetra-up.sh` with `--provider` flag fully implemented.
+
+**Key implementation details:**
+- `--provider` parsing handles all forms: `deepseek:smart`, `openrouter/org/model`,
+  `ollama:qwen2.5:7b`, `litellm:/path/config.yaml`, bare `anthropic`
+- Provider YAML loaded via **embedded Python3** — no yq, no PyYAML dep
+- Tier-1 (`anthropic-compat`): injects `ANTHROPIC_BASE_URL` + `ANTHROPIC_MODEL` only; no extra container
+- Tier-2 (`litellm-proxy`): generates litellm config YAML at runtime into temp file;
+  generates a compose fragment dynamically (not a static file); cleans up on exit
+- `requires[]` guard: fails immediately if a required env var is missing on the host
+- `--api` flag is **provider-aware**: reads `api_key_env` from the YAML, tries env var
+  then falls back to `~/.{provider}_api_key` file (e.g. `~/.deepseek_api_key`)
+- `ANTHROPIC_MODEL` only injected when user explicitly specifies a model (avoids
+  overriding Claude Code's default for `--provider anthropic`)
+- Litellm-proxy gets a dummy `ANTHROPIC_API_KEY=sk-litellm-passthrough` so Claude
+  Code's auth check passes against the local sidecar
+- `--security` flag still works as a backward-compat alias for `--mode security`
+- Playwright: now a dynamically generated compose fragment with `network_mode: host`
+  (replaces the old sed hack on compose.yml); incompatible with litellm (detected + errored)
+- `--no-internet` parsed but stubbed with warning (M3)
+- Settings dir renamed: `~/.triquetra-settings-<name>` (was `~/.claude-settings-<name>`)
+- `COMPOSE_CMD` is now a bash array — no more word-split issue with `docker compose`
+
+**New/updated compose files:**
+- `compose/base.yml`: service renamed `triquetra`; image `${TRIQUETRA_IMAGE:-claude-code-env}`;
+  `network_mode: bridge` removed (default compose network handles NAT + inter-container DNS)
+- `compose/security.yml`: security mode fragment (image override, GOPATH/PATH, results/wordlists
+  volumes, NET_RAW + NET_ADMIN caps)
+- `compose/litellm.yml`: reference template (script generates equivalent at runtime)
+
+**Gate status:** M1 implementation complete. **Not yet tested end-to-end.**
+Next action: run `./triquetra-up.sh ~/project --provider deepseek --api --prompt-file scout.md`
+with `DEEPSEEK_API_KEY` set to verify the M1 gate.
+
+### What still exists and works unchanged
+
+- `/app` — the original working `claude-in-container` harness
+  - Still fully functional; `claude-up.sh` continues to work as-is
+  - Reference for Dockerfiles and compose patterns
 
 ---
 
@@ -82,8 +107,10 @@ var injection in the launch script.
    providers. Optional (only starts when needed). Config is **generated at runtime**
    into a temp file — not maintained as a static YAML in the repo.
 
-6. **New standalone repo**, cloned from `/app` to preserve git history. History is
-   publication-quality; the commit log tells the authentic origin story.
+6. **Single repo** — `/home/bergurth/projects/Triquetra` is the Triquetra repo.
+   The original plan to clone `/app` was superseded; the repo was started fresh
+   (design docs existed first). `/app` git history lives at
+   `github.com/Bergurth/claude-in-container` and can be referenced there.
 
 7. **Target audience**: personal use + JSP V2/V3 production pipeline. Open-source
    publication is a goal but not a blocker on early milestones.
@@ -96,37 +123,38 @@ var injection in the launch script.
    - `--api` flag is provider-aware: reads `api_key_env` from the YAML
    - Parsing: `openrouter/`, `bedrock/`, `openai/` split on first `/`; all others split on first `:`
 
+10. **VibePod awareness**: VibePod (open-source, March 2026) is the closest existing tool —
+    runs multiple agents in Docker with zero config. Triquetra's differentiation:
+    provider switching *within* Claude Code (the ANTHROPIC_BASE_URL trick), security
+    mode as a domain toolset, and personal pipeline integration. OpenCode natively
+    supports 75+ providers, making it the long-term answer for the "any provider" use
+    case (which is why M5/OpenCode agent remains on the roadmap).
+
 ---
 
 ## Implementation milestones
 
-### M0 — Repository bootstrap (½ day) — **NEXT**
-- `git clone /app triquetra/` (preserves history), set new remote
-- Copy design docs from `/app_4` into `triquetra/docs/`
-- Create skeleton directories: `agents/`, `modes/`, `providers/`, `compose/`
-- Write initial README
-- **Gate:** repo exists with a real GitHub remote
+### M0 — Repository bootstrap — ✅ DONE
+- Skeleton dirs, docs reorganised, reference files copied from `/app`, README written
+- **Gate:** repo structured and committed ✓ (GitHub remote still pending)
 
-### M1 — `triquetra-up.sh` with `--provider` (2–3 days)
-*Primary JSP cost-reduction unlock.*
-- All existing `claude-up.sh` flags preserved
-- Add `--provider` flag: tier-1 (anthropic, deepseek, openrouter) and tier-2 (ollama via LiteLLM)
-- Read `providers/*.yml` using embedded Python3 (no yq/PyYAML dep)
-- `compose/litellm.yml` sidecar fragment, merged when tier-2 selected
-- Model aliases (`deepseek:smart` → `deepseek-reasoner`)
-- **Gate:** JSP scout stage runs successfully with `--provider deepseek`
+### M1 — `triquetra-up.sh` with `--provider` — ✅ DONE (pre-testing)
+- `--provider` flag with tier-1 and tier-2 providers
+- Embedded Python3 YAML parser
+- LiteLLM sidecar compose generation
+- Provider-aware `--api`, `requires[]` guard, model aliases
+- **Gate:** JSP scout runs with `--provider deepseek` — **not yet verified**
 
-### M2 — Directory restructure + mode-aware build (2–3 days)
-- `agents/claude-code/Dockerfile` (with `ARG MODE`)
-- `agents/claude-code/wrapper.sh` (mode context injection → exec claude)
-- `modes/dev/`, `modes/security/` (port from `/app`)
-- `compose/base.yml`, `compose/playwright.yml`, `compose/no-internet.yml`
+### M2 — Directory restructure + mode-aware build (2–3 days) — NEXT
 - `build.sh --agent claude-code [--mode dev|security]`
+- Dockerfile refactor: `ARG MODE`, mode-specific package layers
+- `agents/claude-code/wrapper.sh` generalised for mode context injection
+- `modes/dev/` and `modes/security/` with `packages.txt` / `requirements.txt` / `context.md`
 - **Gate:** `./build.sh` produces correctly-tagged images; both launch
 
 ### M3 — `--no-internet` air-gap flag (½–1 day)
-- `compose/no-internet.yml` network isolation fragment
-- LiteLLM sidecar reachable, no outbound internet
+- `compose/no-internet.yml` network isolation fragment (replaces the current stub)
+- LiteLLM sidecar reachable at `http://litellm:4000`, no outbound internet
 - **Gate:** `--provider ollama:qwen2.5 --no-internet` verified via failed `curl` inside container
 
 ### M4 — Data mode (1–2 days)
@@ -148,55 +176,72 @@ var injection in the launch script.
 
 ## Open questions (still unresolved)
 
+- **M1 gate test** — `--provider deepseek` not yet run against a real JSP scout prompt
 - **OpenCode provider adapter** — how `--provider` maps to OpenCode's native config
   (needs investigation of OpenCode config format; M5 spike task)
 - **Build strategy** — one fat image per agent+mode vs. layered base images
   (current plan: one image per combination; revisit if CI caching becomes painful)
-- **OpenCode settings persistence** — equivalent of `~/.claude-settings-<name>` unknown
-- **Publish target** — GitHub org name, license confirmed as MIT
+- **OpenCode settings persistence** — equivalent of `~/.triquetra-settings-<name>` unknown
+- **GitHub remote** — repo not yet pushed; `gh repo create` needed before M6
 
 ---
 
 ## How to orient a new session
 
-The next session should start with **M0**: setting up the repository.
+Read this file, then check git log to see what's landed since this was written:
+```bash
+git -C /home/bergurth/projects/Triquetra log --oneline
+```
 
-Key files to read:
-- `/app_4/session-start.md` — this file
-- `/app_4/providers/schema.md` — provider YAML spec (fully resolved)
-- `/app_4/triquetra-architecture.md` — internal design
-- `/app/claude-up.sh` — the working script that `triquetra-up.sh` generalises
+Key files to read depending on the task:
+- `triquetra-up.sh` — the main script (M1 implemented here)
+- `providers/schema.md` — provider YAML spec
+- `compose/base.yml`, `compose/security.yml`, `compose/litellm.yml` — compose fragments
+- `docs/triquetra-architecture.md` — internal design
 
 ---
 
 ## Quick reference: file map
 
 ```
-/app/                          existing working system (reference implementation)
-  claude-up.sh                 launch script (Triquetra will generalise this)
-  Dockerfile                   dev mode image
-  Dockerfile.security          security mode image
-  compose.yml                  normal compose
-  compose.security.yml         security compose
-  security-claude-wrapper.sh   mode context injection (pattern to port)
+/home/bergurth/projects/Triquetra/     (= /app_4 inside the container)
+  triquetra-up.sh                      main entrypoint — M1 IMPLEMENTED
+  README.md                            project overview + quick-start
 
-/app_4/                        Triquetra design docs + resolved schema
-  README.md                    project overview
-  providers.md                 provider reference
-  agents.md                    agent reference
-  modes.md                     mode/toolset reference
-  pipelines.md                 orchestration patterns
-  triquetra-architecture.md    internal design
-  triquetra-feasibility.md     original feasibility analysis
-  v3_triquetra_use_case_analysis.md  JSP V2/V3 use cases + K8s path
+  agents/claude-code/
+    Dockerfile                         dev image (from /app, M2 will refactor)
+    Dockerfile.security                security image (from /app)
+    wrapper.sh                         mode context injection (M2 will generalise)
+
+  modes/
+    dev/.gitkeep                       placeholder (M2)
+    security/context.md               security tools prompt (from /app)
+    data/.gitkeep                      placeholder (M4)
+
+  compose/
+    base.yml                           base service definition (service: triquetra)
+    security.yml                       security mode fragment
+    litellm.yml                        litellm sidecar reference template
+    mcp-config-template.json           Playwright MCP config
+
   providers/
-    schema.md                  canonical provider YAML field reference
-    anthropic.yml              direct provider (no redirect)
-    deepseek.yml               anthropic-compat (tier 1)
-    openrouter.yml             anthropic-compat (tier 1)
-    ollama.yml                 litellm-proxy (tier 2, local)
-    openai.yml                 litellm-proxy (tier 2)
-    bedrock.yml                litellm-proxy (tier 2, AWS)
-    custom-example.yml         template for new providers
-  session-start.md             this file
+    schema.md                          canonical field reference
+    anthropic.yml                      direct (no redirect)
+    deepseek.yml                       anthropic-compat (tier 1) ← M1 primary target
+    openrouter.yml                     anthropic-compat (tier 1)
+    ollama.yml                         litellm-proxy (tier 2, local)
+    openai.yml                         litellm-proxy (tier 2)
+    bedrock.yml                        litellm-proxy (tier 2, AWS)
+    custom-example.yml                 template for user-defined providers
+
+  docs/
+    session-start.md                   this file
+    triquetra-architecture.md          internal design
+    providers.md / agents.md / modes.md / pipelines.md
+    triquetra-feasibility.md / v3_triquetra_use_case_analysis.md
+
+/app/                                  original claude-in-container (still works)
+  claude-up.sh                         reference — Triquetra generalises this
+  Dockerfile / Dockerfile.security     reference images
+  compose.yml / compose.security.yml   reference compose files
 ```
