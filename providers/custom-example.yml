@@ -1,0 +1,51 @@
+# Custom provider template. Copy to providers/myprovider.yml and fill in.
+#
+# type: direct | anthropic-compat | litellm-proxy
+#
+#   direct          — no redirection; uses standard Anthropic API.
+#                     Only sensible for an Anthropic-hosted variant (e.g. Claude on Bedrock
+#                     routed differently). In practice, almost never used directly.
+#
+#   anthropic-compat — provider exposes /v1/messages in Anthropic format.
+#                     Script sets ANTHROPIC_BASE_URL + ANTHROPIC_API_KEY.
+#                     No sidecar container started.
+#
+#   litellm-proxy    — provider needs translation. Script starts LiteLLM sidecar,
+#                     sets ANTHROPIC_BASE_URL=http://litellm:4000.
+#                     LiteLLM config is generated at runtime.
+
+type: anthropic-compat
+
+# API endpoint (anthropic-compat only). Omit for direct or litellm-proxy.
+base_url: https://my-provider.example.com/v1
+
+# Default model when no model specified in --provider flag.
+default_model: my-default-model
+
+# Short aliases. 'fast', 'smart', 'reason' are conventional; add any you like.
+model_map:
+  fast: my-fast-model
+  smart: my-best-model
+  # reason: my-reasoning-model  # if provider has one
+
+# Name of the env var that holds the API key. Empty string if none needed.
+api_key_env: MY_PROVIDER_API_KEY
+
+# Env vars that must be present on the host before launch. Script exits if any are missing.
+requires:
+  - MY_PROVIDER_API_KEY
+
+# litellm-proxy only: prefix prepended to the model name when passed to LiteLLM.
+# e.g. "ollama/" → LiteLLM receives "ollama/qwen2.5-coder:7b"
+# litellm_model_prefix: "myprovider/"
+
+# litellm-proxy only: where LiteLLM connects to reach the provider.
+# Empty string for providers accessed via SDK (e.g. AWS Bedrock via boto3).
+# litellm_api_base: "https://my-provider.example.com/v1"
+
+# litellm-proxy only: env var holding the API key for the downstream provider.
+# Injected into the LiteLLM sidecar container.
+# litellm_api_key_env: MY_PROVIDER_API_KEY
+
+# Human-readable note shown when this provider is selected.
+# notes: "Register at https://my-provider.example.com to get an API key."

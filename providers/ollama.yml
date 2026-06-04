@@ -1,0 +1,16 @@
+type: litellm-proxy
+litellm_model_prefix: "ollama/"
+litellm_api_base: "http://host.docker.internal:11434"
+default_model: qwen2.5-coder:7b
+model_map:
+  fast: qwen2.5-coder:7b
+  smart: qwen2.5-coder:32b
+  reason: deepseek-coder-v2:16b
+api_key_env: ""
+requires: []
+notes: "Requires Ollama running on host. Pull models with: ollama pull MODEL"
+# Usage: --provider ollama:qwen2.5-coder:7b
+#        --provider ollama:fast
+# The model passed on the CLI is the bare Ollama model name.
+# The script prepends litellm_model_prefix before passing to LiteLLM.
+# LiteLLM config is generated at runtime from litellm_model_prefix + litellm_api_base.

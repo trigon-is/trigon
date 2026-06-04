@@ -1,0 +1,95 @@
+FROM ubuntu:latest
+
+# Install base system packages
+RUN apt-get update && apt-get install -y \
+    # Base development tools (from original)
+    npm nodejs python3 python3-pip python3-venv git ripgrep fd-find \
+    # Database tools
+    postgresql-client libpq-dev sqlite3 \
+    # Security reconnaissance tools
+    nmap masscan \
+    # Web security tools
+    gobuster ffuf nikto dirb \
+    # Network analysis
+    tshark tcpdump netcat-openbsd netcat-traditional \
+    # OSINT and enumeration
+    dnsutils whois curl wget \
+    # Crypto and forensics
+    hashcat john binwalk foremost \
+    # Additional utilities
+    tmux screen vim nano jq \
+    # Build essentials for tool compilation
+    build-essential gcc make \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code
+
+# Install Python security tools
+RUN pip3 install --no-cache-dir --break-system-packages \
+    # Original Python tools
+    django \
+    djangorestframework \
+    black \
+    flake8 \
+    pytest \
+    mypy \
+    isort \
+    # Security Python tools
+    requests \
+    beautifulsoup4 \
+    # DNS and subdomain tools
+    dnspython \
+    # Web scraping and OSINT
+    scrapy \
+    # Network scanning helpers
+    python-nmap \
+    # General utilities
+    colorama \
+    termcolor
+
+# Install Go (for modern security tools)
+RUN wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz \
+    && rm go1.21.5.linux-amd64.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/root/go"
+ENV GO111MODULE=on
+
+# Install modern security tools written in Go (one by one to isolate failures)
+# Install subfinder
+RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest || echo "subfinder install failed"
+
+# Install httpx
+RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest || echo "httpx install failed"
+
+# Install simpler tools first
+RUN go install -v github.com/tomnomnom/assetfinder@latest || echo "assetfinder install failed"
+
+RUN go install -v github.com/tomnomnom/waybackurls@latest || echo "waybackurls install failed"
+
+# Install nuclei (may be resource intensive)
+RUN go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest || echo "nuclei install failed"
+
+# Install naabu (requires network capabilities)
+RUN go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest || echo "naabu install failed"
+
+ENV PATH="/root/go/bin:${PATH}"
+
+# Create directories for security research
+RUN mkdir -p /security/{wordlists,tools,results,scripts}
+
+# Download common wordlists
+WORKDIR /security/wordlists
+RUN wget -q https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt \
+    && wget -q https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Set working directory
+WORKDIR /app
+COPY . /app
+
+# Make security wrapper executable
+RUN chmod +x /app/security-claude-wrapper.sh
+
+# Default command uses security-aware wrapper
+CMD ["/app/security-claude-wrapper.sh"]

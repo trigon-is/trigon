@@ -1,154 +1,151 @@
 # Triquetra
 
-A provider-agnostic, agent-flexible container harness for LLM-assisted development
-and automation.
+A provider-agnostic, agent-flexible Docker container harness for LLM-assisted development and automation.
 
----
+```
+./triquetra-up.sh [PROJECT_PATH ...] [FLAGS]
+```
 
-## What it is
-
-Triquetra wraps an AI coding agent in a Docker container and lets you swap the model
-provider at launch time — no code changes, no re-configuration between runs. Each
-invocation is a self-contained unit: one agent, one provider, one mode, one optional
-prompt. Multi-step pipelines are built by chaining invocations from outside the system.
-
-The name reflects the three-axis design: **provider × agent × mode**.
+Each invocation is one self-contained unit: **agent + provider + mode → one container run → output / exit**.  
+No internal orchestration. Multi-step pipelines are built externally in shell, Makefiles, or CI.
 
 ---
 
 ## Quick start
 
 ```bash
-# Interactive session — Claude Code, Anthropic, dev tooling (default)
+# Default: Claude Code, Anthropic, dev mode
 ./triquetra-up.sh ~/my-project
 
-# Same project, different provider
-./triquetra-up.sh ~/my-project --provider deepseek
+# DeepSeek for cost-sensitive tasks (uses ANTHROPIC_BASE_URL trick, no proxy)
+./triquetra-up.sh ~/my-project --provider deepseek --api
 
-# Local model, no data leaves the machine
-./triquetra-up.sh ~/my-project --provider ollama:qwen2.5
+# Local model, air-gapped (LiteLLM sidecar translates to Ollama)
+./triquetra-up.sh ~/my-project --provider ollama:qwen2.5 --no-internet
+
+# Security audit (nmap, gobuster, nuclei, Go tools baked in)
+./triquetra-up.sh ~/my-project --mode security
 
 # Non-interactive pipeline run
-./triquetra-up.sh ~/my-project --provider deepseek --prompt-file ./prompts/plan.md
-
-# Security audit mode
-./triquetra-up.sh ~/my-project --mode security --provider anthropic
-
-# Different agent frontend
-./triquetra-up.sh ~/my-project --agent opencode --provider openrouter/google/gemini-2.5-pro
+./triquetra-up.sh ~/my-project --prompt-file scout.md --provider deepseek --api
 ```
 
 ---
 
-## The three axes
+## Flags
 
-| Axis | What it controls | Default |
-|------|-----------------|---------|
-| `--provider` | Which LLM backend answers requests | `anthropic` |
-| `--agent` | Which coding agent runs in the container | `claude-code` |
-| `--mode` | Which domain tools are available | `dev` |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--provider NAME` | `anthropic` | Model provider. See [Provider reference](docs/providers.md) |
+| `--agent NAME` | `claude-code` | Agent frontend. See [Agent reference](docs/agents.md) |
+| `--mode NAME` | `dev` | Domain toolset (`dev`, `security`, `data`). See [Modes](docs/modes.md) |
+| `--name NAME` | `triquetra-<agent>` | Container name (also determines settings persistence directory) |
+| `--api` | off | Inject API key for the selected provider (`~/.anthropic_api_key` or `api_key_env` from provider YAML) |
+| `--yolo` | off | Skip agent permission prompts (`--dangerously-skip-permissions`) |
+| `--root` | off | Run container as root |
+| `--playwright` | off | Enable Playwright MCP browser automation (connects to host Chrome on port 9222) |
+| `--no-internet` | off | Air-gap: no outbound network. LiteLLM sidecar and project volume still reachable |
+| `--prompt-file PATH` | — | Non-interactive: pass prompt content and exit on completion |
+| `--max-budget USD` | — | Cap API spend for pipeline runs |
 
-These are independently composable. Any provider works with any agent (where
-technically supported). Any mode works with any agent.
-
----
-
-## Full usage
-
-```
-./triquetra-up.sh [PROJECT_PATH ...] [FLAGS]
-
-Project paths:
-  One or more directories to mount. First → /app, subsequent → /app_2, /app_3 ...
-  Defaults to current directory. Maximum 5.
-
-Provider:
-  --provider NAME         anthropic (default), deepseek, openrouter/MODEL,
-                          ollama:MODEL, bedrock/MODEL, litellm:CONFIG_FILE
-
-Agent:
-  --agent NAME            claude-code (default), opencode
-
-Mode:
-  --mode NAME             dev (default), security
-
-Session:
-  --name NAME             Container name (default: triquetra-<agent>)
-  --yolo                  Skip agent permission prompts
-  --root                  Run container as root
-
-Network / browser:
-  --playwright            Enable Playwright MCP browser automation
-  --no-internet           Disable outbound network (local models only)
-
-API / billing:
-  --api                   Inject API key for selected provider
-  --max-budget USD        Cap spend (pipeline runs only)
-
-Pipeline:
-  --prompt-file PATH      Non-interactive: run prompt, exit on completion
-```
+Multiple project directories can be passed as positional arguments (up to 5). First mounts to `/app`, subsequent to `/app_2`…`/app_5`.
 
 ---
 
-## How provider switching works
+## Provider switching
 
-Claude Code CLI respects two environment variables:
+Triquetra resolves providers in two tiers:
 
-```
-ANTHROPIC_BASE_URL   redirect API calls to a different host
-ANTHROPIC_MODEL      override the model name
-```
+**Tier 1 — direct (no proxy, zero overhead)**  
+Providers that speak the Anthropic Messages API natively.  
+Claude Code's `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL` env vars are set; no extra containers.
 
-For providers that expose an Anthropic-compatible `/v1/messages` endpoint (DeepSeek,
-OpenRouter, etc.), Triquetra injects these variables — no proxy required.
+| Provider | Example |
+|----------|---------|
+| `anthropic` | default |
+| `deepseek` | `--provider deepseek` |
+| `openrouter/MODEL` | `--provider openrouter/anthropic/claude-sonnet-4-5` |
 
-For providers that do not (Ollama, OpenAI, Bedrock), Triquetra spins up a LiteLLM
-sidecar container in the same compose network. LiteLLM exposes an Anthropic-compatible
-endpoint and translates requests to the target provider. The agent container sees no
-difference.
+**Tier 2 — LiteLLM sidecar**  
+Providers that need format translation. A LiteLLM container starts alongside the agent.
 
-See [providers.md](providers.md) for the full provider reference.
+| Provider | Example |
+|----------|---------|
+| `ollama:MODEL` | `--provider ollama:qwen2.5` |
+| `openai/MODEL` | `--provider openai/gpt-4o` |
+| `bedrock/MODEL` | `--provider bedrock/anthropic.claude-3-5-sonnet` |
 
----
-
-## Pipelines
-
-Triquetra does not orchestrate multi-step pipelines internally. Instead, each run is
-a composable unit that you chain from outside:
-
-```bash
-#!/usr/bin/env bash
-# example: plan with reasoning model → implement with fast model → review locally
-
-./triquetra-up.sh ~/project --provider deepseek:deepseek-reasoner \
-  --prompt-file prompts/01-plan.md
-
-./triquetra-up.sh ~/project --provider anthropic \
-  --prompt-file prompts/02-implement.md
-
-./triquetra-up.sh ~/project --provider ollama:qwen2.5 \
-  --no-internet --prompt-file prompts/03-review.md
-```
-
-See [pipelines.md](pipelines.md) for patterns, examples, and CI integration.
+Provider config lives in `providers/*.yml`. See [Provider schema](docs/providers.md) and [schema spec](providers/schema.md).
 
 ---
 
-## Relationship to claude-in-container
+## Modes
 
-Triquetra is a generalisation of the `claude-in-container` project (`/app`). The
-existing dev and security modes map directly to Triquetra's `--mode dev` and
-`--mode security`. If you currently use `claude-up.sh`, `triquetra-up.sh` is a
-drop-in replacement for the default case.
+| Mode | Tools | Use case |
+|------|-------|---------|
+| `dev` | Python, Node, git, standard build tools | Software development |
+| `security` | nmap, gobuster, nuclei, ffuf, Go tools | Pentesting, security audits |
+| `data` | pandas, numpy, LaTeX/xelatex, dbt | Data analysis, report generation |
 
 ---
 
-## Documentation
+## Directory structure
 
-- [providers.md](providers.md) — supported providers, configuration, adding new ones
-- [agents.md](agents.md) — supported agents, differences, adding new ones
-- [modes.md](modes.md) — domain toolsets, adding new modes
-- [pipelines.md](pipelines.md) — external orchestration patterns and examples
-- [triquetra-architecture.md](triquetra-architecture.md) — design rationale and internals
-- [triquetra-feasibility.md](triquetra-feasibility.md) — original feasibility analysis
+```
+triquetra/
+├── triquetra-up.sh          # main entrypoint
+├── build.sh                 # build agent images
+│
+├── agents/
+│   └── claude-code/
+│       ├── Dockerfile       # dev mode image
+│       ├── Dockerfile.security
+│       └── wrapper.sh       # mode-aware entrypoint
+│
+├── modes/
+│   ├── dev/                 # dev toolset (packages, context)
+│   ├── security/
+│   │   └── context.md       # security tools context prompt
+│   └── data/
+│
+├── providers/               # provider YAML configs
+│   ├── schema.md
+│   ├── anthropic.yml
+│   ├── deepseek.yml
+│   ├── openrouter.yml
+│   ├── ollama.yml
+│   ├── openai.yml
+│   ├── bedrock.yml
+│   └── custom-example.yml
+│
+├── compose/
+│   ├── base.yml             # shared service definition
+│   ├── litellm.yml          # LiteLLM sidecar fragment (tier-2 providers)
+│   ├── playwright.yml       # browser MCP fragment
+│   └── no-internet.yml      # air-gap network fragment
+│
+└── docs/
+    ├── providers.md
+    ├── agents.md
+    ├── modes.md
+    ├── pipelines.md
+    └── triquetra-architecture.md
+```
+
+---
+
+## Settings persistence
+
+Each named container (`--name`) gets its own settings directory on the host at `~/.triquetra-settings-<name>`. This holds Claude Code's OAuth token, conversation history, and configuration — it persists across container restarts.
+
+---
+
+## Origin
+
+Triquetra generalises [claude-in-container](https://github.com/Bergurth/claude-in-container) along three axes: provider, agent, and mode. The working `claude-code + anthropic + dev/security` implementation is the reference; the rest of the system layers on top without breaking it.
+
+---
+
+## License
+
+MIT

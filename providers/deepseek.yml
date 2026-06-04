@@ -1,0 +1,10 @@
+type: anthropic-compat
+base_url: https://api.deepseek.com/v1
+default_model: deepseek-chat
+model_map:
+  fast: deepseek-chat
+  smart: deepseek-reasoner
+  reason: deepseek-reasoner
+api_key_env: DEEPSEEK_API_KEY
+requires:
+  - DEEPSEEK_API_KEY

@@ -1,0 +1,15 @@
+type: anthropic-compat
+base_url: https://openrouter.ai/api/v1
+default_model: deepseek/deepseek-r1
+model_map:
+  fast: meta-llama/llama-3.3-70b-instruct
+  smart: google/gemini-2.5-pro
+  reason: deepseek/deepseek-r1
+api_key_env: OPENROUTER_API_KEY
+requires:
+  - OPENROUTER_API_KEY
+# Model slug is the full OpenRouter slug: org/model-name
+# Usage: --provider openrouter/google/gemini-2.5-pro
+#        --provider openrouter:smart
+# The script splits on the first '/' to detect the openrouter provider,
+# then passes everything after the first '/' as the model slug.

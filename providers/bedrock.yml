@@ -1,0 +1,16 @@
+type: litellm-proxy
+litellm_model_prefix: "bedrock/"
+litellm_api_base: ""
+default_model: anthropic.claude-sonnet-4-6
+model_map:
+  fast: anthropic.claude-haiku-4-5
+  smart: anthropic.claude-opus-4-7
+  reason: anthropic.claude-opus-4-7
+api_key_env: ""
+requires:
+  - AWS_ACCESS_KEY_ID
+  - AWS_SECRET_ACCESS_KEY
+  - AWS_REGION
+# No litellm_api_base — LiteLLM uses the AWS SDK directly (boto3).
+# AWS credentials are injected as env vars into the LiteLLM sidecar.
+# Usage: --provider bedrock/anthropic.claude-sonnet-4-6

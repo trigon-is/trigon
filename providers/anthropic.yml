@@ -1,0 +1,10 @@
+type: direct
+default_model: claude-sonnet-4-6
+model_map:
+  fast: claude-haiku-4-5-20251001
+  smart: claude-opus-4-7
+  reason: claude-opus-4-7
+api_key_env: ANTHROPIC_API_KEY
+requires: []
+# No base_url override — standard Anthropic endpoint used as-is.
+# API key is optional: omit for OAuth (Pro quota), supply for API billing.

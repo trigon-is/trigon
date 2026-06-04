@@ -1,0 +1,15 @@
+type: litellm-proxy
+litellm_model_prefix: "openai/"
+litellm_api_base: "https://api.openai.com/v1"
+default_model: gpt-4o
+model_map:
+  fast: gpt-4o-mini
+  smart: gpt-4o
+  reason: o3
+api_key_env: OPENAI_API_KEY
+requires:
+  - OPENAI_API_KEY
+# Usage: --provider openai/gpt-4o
+#        --provider openai:smart
+# The script splits on the first '/' to detect the openai provider,
+# then passes everything after as the model name.
