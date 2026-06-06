@@ -65,6 +65,8 @@ Repo bootstrapped at `/home/bergurth/projects/Triquetra` (= `/app_4` inside cont
 - `--security` flag still works as a backward-compat alias for `--mode security`
 - Playwright: now a dynamically generated compose fragment with `network_mode: host`
   (replaces the old sed hack on compose.yml); incompatible with litellm (detected + errored)
+- `--playwright-headless` parsed but stubbed with warning (M2) — headless Chromium inside the
+  container; no `network_mode: host` needed, compatible with all providers including tier-2
 - `--no-internet` parsed but stubbed with warning (M3)
 - Settings dir renamed: `~/.triquetra-settings-<name>` (was `~/.claude-settings-<name>`)
 - `COMPOSE_CMD` is now a bash array — no more word-split issue with `docker compose`
@@ -150,7 +152,12 @@ with `DEEPSEEK_API_KEY` set to verify the M1 gate.
 - Dockerfile refactor: `ARG MODE`, mode-specific package layers
 - `agents/claude-code/wrapper.sh` generalised for mode context injection
 - `modes/dev/` and `modes/security/` with `packages.txt` / `requirements.txt` / `context.md`
-- **Gate:** `./build.sh` produces correctly-tagged images; both launch
+- `--playwright-headless`: headless Chromium inside the container; Playwright MCP launches its
+  own browser (no `network_mode: host`); compatible with all providers including tier-2;
+  requires Chromium added to the dev image layer; tradeoff: no host browser sessions/cookies,
+  +300–500MB image size
+- **Gate:** `./build.sh` produces correctly-tagged images; both launch; `--playwright-headless`
+  works with a tier-2 provider
 
 ### M3 — `--no-internet` air-gap flag (½–1 day)
 - `compose/no-internet.yml` network isolation fragment (replaces the current stub)

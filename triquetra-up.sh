@@ -38,6 +38,7 @@ NAME=""
 YOLO=0
 ROOT_MODE=0
 PLAYWRIGHT=0
+PLAYWRIGHT_HEADLESS=0
 USE_API_KEY=0
 NO_INTERNET=0
 PROMPT_FILE=""
@@ -75,6 +76,7 @@ while [[ $i -lt ${#FLAGS[@]} ]]; do
     --yolo)        YOLO=1 ;;
     --root)        ROOT_MODE=1 ;;
     --playwright|--playwrite) PLAYWRIGHT=1 ;;
+    --playwright-headless)    PLAYWRIGHT_HEADLESS=1 ;;
     --api)         USE_API_KEY=1 ;;
     --no-internet) NO_INTERNET=1 ;;
     --security)    MODE="security" ;;  # backward compat alias for --mode security
@@ -384,6 +386,11 @@ COMPOSE_EOF
   export PLAYWRIGHT_ENABLED=1
 else
   export PLAYWRIGHT_ENABLED=0
+fi
+
+# ── --playwright-headless stub (M2) ──────────────────────────────────────────
+if [[ $PLAYWRIGHT_HEADLESS -eq 1 ]]; then
+  echo "Warning: --playwright-headless is not yet implemented (planned for M2). Flag ignored." >&2
 fi
 
 # ── --no-internet stub (M3) ───────────────────────────────────────────────────
