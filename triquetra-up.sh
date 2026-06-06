@@ -254,7 +254,7 @@ if [[ "$PROVIDER_TYPE" == "litellm-proxy" ]]; then
     FULL_MODEL="${PROVIDER_LITELLM_PREFIX}${PROVIDER_MODEL}"
     {
       printf 'model_list:\n'
-      printf '  - model_name: %s\n' "$FULL_MODEL"
+      printf '  - model_name: %s\n' "$PROVIDER_MODEL"
       printf '    litellm_params:\n'
       printf '      model: %s\n' "$FULL_MODEL"
       [[ -n "$PROVIDER_LITELLM_API_BASE" ]] && printf '      api_base: %s\n' "$PROVIDER_LITELLM_API_BASE"

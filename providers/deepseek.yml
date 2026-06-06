@@ -1,10 +1,11 @@
-type: anthropic-compat
-base_url: https://api.deepseek.com/v1
-default_model: deepseek-chat
+type: litellm-proxy
+litellm_model_prefix: "deepseek/"
+litellm_api_base: "https://api.deepseek.com/v1"
+default_model: deepseek-v4-flash
 model_map:
-  fast: deepseek-chat
-  smart: deepseek-reasoner
-  reason: deepseek-reasoner
+  fast: deepseek-v4-flash
+  smart: deepseek-v4-pro
+  reason: deepseek-v4-pro
 api_key_env: DEEPSEEK_API_KEY
 requires:
   - DEEPSEEK_API_KEY
