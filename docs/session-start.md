@@ -136,48 +136,20 @@ with `DEEPSEEK_API_KEY` set to verify the M1 gate.
 
 ## Implementation milestones
 
-### M0 — Repository bootstrap — ✅ DONE
-- Skeleton dirs, docs reorganised, reference files copied from `/app`, README written
-- **Gate:** repo structured and committed ✓ (GitHub remote still pending)
+Full detail, gate conditions, bugs found, and open items per milestone:
+→ **[`docs/v1_milestones_roadmap.md`](v1_milestones_roadmap.md)**
 
-### M1 — `triquetra-up.sh` with `--provider` — ✅ DONE (pre-testing)
-- `--provider` flag with tier-1 and tier-2 providers
-- Embedded Python3 YAML parser
-- LiteLLM sidecar compose generation
-- Provider-aware `--api`, `requires[]` guard, model aliases
-- **Gate:** JSP scout runs with `--provider deepseek` — **not yet verified**
+Current status summary:
 
-### M2 — Directory restructure + mode-aware build (2–3 days) — NEXT
-- `build.sh --agent claude-code [--mode dev|security]`
-- Dockerfile refactor: `ARG MODE`, mode-specific package layers
-- `agents/claude-code/wrapper.sh` generalised for mode context injection
-- `modes/dev/` and `modes/security/` with `packages.txt` / `requirements.txt` / `context.md`
-- `--playwright-headless`: headless Chromium inside the container; Playwright MCP launches its
-  own browser (no `network_mode: host`); compatible with all providers including tier-2;
-  requires Chromium added to the dev image layer; tradeoff: no host browser sessions/cookies,
-  +300–500MB image size
-- **Gate:** `./build.sh` produces correctly-tagged images; both launch; `--playwright-headless`
-  works with a tier-2 provider
-
-### M3 — `--no-internet` air-gap flag (½–1 day)
-- `compose/no-internet.yml` network isolation fragment (replaces the current stub)
-- LiteLLM sidecar reachable at `http://litellm:4000`, no outbound internet
-- **Gate:** `--provider ollama:qwen2.5 --no-internet` verified via failed `curl` inside container
-
-### M4 — Data mode (1–2 days)
-*JSP letter-writing needs LaTeX.*
-- `modes/data/`: texlive-full, xelatex, latexmk + Python data stack
-- **Gate:** agent compiles `.tex` to `.pdf` inside container, PDF appears in mounted volume
-
-### M5 — OpenCode agent (spike 1 day → integration 2–3 days)
-- Research: OpenCode config format, pipeline mode, settings persistence
-- `agents/opencode/Dockerfile`, `wrapper.sh`, `provider-map.yml`
-- **Gate:** `--agent opencode --prompt-file` exits cleanly with output
-
-### M6 — Publication prep (1–2 days) — after M1–M4 stable
-- README, CONTRIBUTING.md, LICENSE (MIT)
-- GitHub Actions CI
-- Tag `v0.1.0`
+| Milestone | Title | Status |
+|-----------|-------|--------|
+| M0 | Repository bootstrap | ✅ Done |
+| M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) |
+| M2 | Mode-aware build + `--playwright-headless` | 🔲 Next |
+| M3 | `--no-internet` air-gap | 🔲 Planned |
+| M4 | Data mode (LaTeX) | 🔲 Planned |
+| M5 | OpenCode agent | 🔲 Planned |
+| M6 | Publication prep | 🔲 Planned |
 
 ---
 
