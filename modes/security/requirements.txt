@@ -1,0 +1,8 @@
+# Security mode Python packages
+requests
+beautifulsoup4
+dnspython
+scrapy
+python-nmap
+colorama
+termcolor

@@ -1,0 +1,24 @@
+# Security mode apt packages
+nmap
+masscan
+gobuster
+ffuf
+nikto
+dirb
+tshark
+tcpdump
+netcat-openbsd
+dnsutils
+whois
+hashcat
+john
+binwalk
+foremost
+tmux
+screen
+vim
+nano
+jq
+build-essential
+gcc
+make

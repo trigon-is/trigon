@@ -44,6 +44,23 @@ Repo bootstrapped at `/home/bergurth/projects/Triquetra` (= `/app_4` inside cont
 - Root `README.md` written (quick-start, flags table, provider tier table, dir structure)
 - GitHub remote: **not yet set up** (skipped at M0, can be done any time with `gh repo create`)
 
+### M2 — DONE (committed, pre-testing)
+
+`build.sh` and unified Dockerfile with `ARG MODE` fully implemented.
+
+**Key implementation details:**
+- `build.sh --agent claude-code [--mode dev|security]` — produces `claude-code-dev:latest` / `claude-code-security:latest`
+- Single `agents/claude-code/Dockerfile` with multi-stage: `base → mode-{dev|security} → final`; `Dockerfile.security` deleted
+- `modes/dev/packages.txt` + `requirements.txt` — apt/pip package lists for dev mode
+- `modes/security/packages.txt` + `requirements.txt` — apt/pip package lists for security mode
+- `agents/claude-code/wrapper.sh` generalised — injects `modes/{TRIQUETRA_MODE}/context.md` into `/settings/.claude/CLAUDE.md` at container start (Claude Code reads this automatically as user-level CLAUDE.md); replaces hardcoded security-mode detection
+- `modes/security/context.md` cleaned up — now contains only the raw prompt text for injection
+- `TRIQUETRA_IMAGE` set to `{agent}-{mode}:latest` in `triquetra-up.sh`; `compose/security.yml` image override removed
+- `--playwright-headless` implemented: writes `mcp-config-headless.json` (headless flag, internal Chromium), generates compose fragment with `ipc: host` + `SYS_PTRACE`; restricted to dev mode; incompatible with `--playwright`
+- Playwright (headless) is installed in the dev image via `playwright install --with-deps chromium`; browsers at `/usr/local/playwright-browsers`
+
+**Gate:** `./build.sh --mode dev` and `./build.sh --mode security` produce correctly-tagged images; both launch; `--playwright-headless` works with `--provider deepseek:smart`
+
 ### M1 — DONE (committed, pre-testing)
 
 `triquetra-up.sh` with `--provider` flag fully implemented.
@@ -145,7 +162,7 @@ Current status summary:
 |-----------|-------|--------|
 | M0 | Repository bootstrap | ✅ Done |
 | M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) |
-| M2 | Mode-aware build + `--playwright-headless` | 🔲 Next |
+| M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) |
 | M3 | `--no-internet` air-gap | 🔲 Planned |
 | M4 | Data mode (LaTeX) | 🔲 Planned |
 | M5 | OpenCode agent | 🔲 Planned |

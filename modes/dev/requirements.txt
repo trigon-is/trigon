@@ -1,0 +1,8 @@
+# Dev mode Python packages
+django
+djangorestframework
+black
+flake8
+pytest
+mypy
+isort

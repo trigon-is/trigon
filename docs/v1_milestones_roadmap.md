@@ -10,7 +10,7 @@ Last updated: 2026-06-06
 |-----------|-------|--------|-------------|
 | M0 | Repository bootstrap | ✅ Done | — |
 | M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) | — |
-| M2 | Mode-aware build + `--playwright-headless` | 🔲 Next | 2–3 days |
+| M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) | — |
 | M3 | `--no-internet` air-gap | 🔲 Planned | ½–1 day |
 | M4 | Data mode (LaTeX) | 🔲 Planned | 1–2 days |
 | M5 | OpenCode agent | 🔲 Planned | 1 day spike + 2–3 days |
@@ -71,25 +71,28 @@ Core provider-switching mechanism. Tested 2026-06-06 with DeepSeek.
 
 ---
 
-## M2 — Mode-aware build + `--playwright-headless` 🔲 Next
+## M2 — Mode-aware build + `--playwright-headless` ✅ Done
 
 **Goal:** decouple images from `/app`; make `build.sh` the authoritative way to produce
 Triquetra images; implement headless Playwright that works with all providers.
 
-**Scope:**
-- `build.sh --agent claude-code [--mode dev|security]` — produces tagged images
-  `claude-code-dev:latest` and `claude-code-security:latest`
-- Dockerfile refactor: `ARG MODE`, mode-specific package layers
-- `modes/dev/packages.txt`, `modes/dev/requirements.txt`
-- `modes/security/packages.txt`, `modes/security/requirements.txt`
-- `agents/claude-code/wrapper.sh` generalised — injects `modes/{MODE}/context.md` at runtime
-  instead of hardcoded mode logic
-- `--playwright-headless`: Chromium in dev image layer; Playwright MCP launches its own browser;
-  no `network_mode: host`; compatible with all providers including tier-2;
-  tradeoff: no host browser sessions/cookies, ~300–500MB image size increase
+**Delivered:**
+- `build.sh --agent claude-code [--mode dev|security]` — produces `claude-code-dev:latest` / `claude-code-security:latest`
+- Single `Dockerfile` with `ARG MODE` and multi-stage: `base → mode-dev|mode-security → final`; `Dockerfile.security` removed
+- `modes/dev/packages.txt` + `requirements.txt` — dev mode package lists (postgresql-client, sqlite3, jq, Django stack)
+- `modes/security/packages.txt` + `requirements.txt` — security mode package lists (nmap, gobuster, Go tools, etc.)
+- `wrapper.sh` generalised: injects `modes/${TRIQUETRA_MODE}/context.md` into `/settings/.claude/CLAUDE.md` at startup
+- `modes/security/context.md` cleaned to raw prompt text only
+- `TRIQUETRA_IMAGE` set to `{agent}-{mode}:latest` in `triquetra-up.sh`; `compose/security.yml` image override removed
+- `--playwright-headless` implemented: headless MCP config, compose fragment with `ipc: host` + `SYS_PTRACE`; dev-mode only; incompatible with `--playwright`
+- Chromium installed at build time via `playwright install --with-deps chromium`; browsers at `/usr/local/playwright-browsers`
 
-**Gate:** `./build.sh` produces correctly-tagged images; both launch;
+**Gate:** `./build.sh --mode dev` and `./build.sh --mode security` produce correctly-tagged images; both launch;
 `--playwright-headless` works with `--provider deepseek:smart`
+
+**Open items from M2:**
+- Image builds not yet tested end-to-end (Playwright download is ~300–500MB; first build will be slow)
+- `--playwright-headless` with non-root user may need `--root` flag if Chrome sandbox fails
 
 ---
 

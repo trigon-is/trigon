@@ -1,6 +1,5 @@
 services:
   triquetra:
-    image: claude-code-sec
     environment:
       - GOPATH=/settings/go
       - PATH=/usr/local/go/bin:/root/go/bin:/settings/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

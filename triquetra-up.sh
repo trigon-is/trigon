@@ -224,6 +224,9 @@ export CLAUDE_SETTINGS_DIR
 SERVICE_NAME="triquetra"
 COMPOSE_FILES=("-f" "${COMPOSE_DIR}/base.yml")
 
+# ── Image selection ───────────────────────────────────────────────────────────
+export TRIQUETRA_IMAGE="${AGENT}-${MODE}:latest"
+
 # ── Mode setup ────────────────────────────────────────────────────────────────
 if [[ "$MODE" == "security" ]]; then
   SECURITY_RESULTS_DIR="${SECURITY_RESULTS_DIR:-$PWD/security-results}"
@@ -388,9 +391,36 @@ else
   export PLAYWRIGHT_ENABLED=0
 fi
 
-# ── --playwright-headless stub (M2) ──────────────────────────────────────────
+# ── --playwright-headless ────────────────────────────────────────────────────
 if [[ $PLAYWRIGHT_HEADLESS -eq 1 ]]; then
-  echo "Warning: --playwright-headless is not yet implemented (planned for M2). Flag ignored." >&2
+  if [[ $PLAYWRIGHT -eq 1 ]]; then
+    echo "Error: --playwright and --playwright-headless cannot both be specified." >&2; exit 1
+  fi
+  if [[ "$MODE" != "dev" ]]; then
+    echo "Error: --playwright-headless requires dev mode (Chromium is only in the dev image)." >&2; exit 1
+  fi
+
+  MCP_CONFIG="${PROJECT_ROOT}/.mcp.json"
+  [[ -f "$MCP_CONFIG" ]] && cp "$MCP_CONFIG" "${MCP_CONFIG}.backup"
+  cp "${COMPOSE_DIR}/mcp-config-headless.json" "$MCP_CONFIG"
+  mkdir -p "$CLAUDE_SETTINGS_DIR/config"
+  cp "$MCP_CONFIG" "$CLAUDE_SETTINGS_DIR/config/mcp.json"
+  echo "Playwright MCP (headless): config written — Chromium runs inside the container"
+
+  PLAYWRIGHT_HEADLESS_COMPOSE="$(mktemp --suffix=.yml)"
+  TEMP_FILES+=("$PLAYWRIGHT_HEADLESS_COMPOSE")
+  cat > "$PLAYWRIGHT_HEADLESS_COMPOSE" <<COMPOSE_EOF
+services:
+  ${SERVICE_NAME}:
+    ipc: host
+    cap_add:
+      - SYS_PTRACE
+    environment:
+      - PLAYWRIGHT_HEADLESS_ENABLED=1
+      - PLAYWRIGHT_BROWSERS_PATH=/usr/local/playwright-browsers
+COMPOSE_EOF
+  COMPOSE_FILES+=("-f" "$PLAYWRIGHT_HEADLESS_COMPOSE")
+  export PLAYWRIGHT_ENABLED=1
 fi
 
 # ── --no-internet stub (M3) ───────────────────────────────────────────────────

@@ -1,0 +1,5 @@
+# Dev mode apt packages
+postgresql-client
+libpq-dev
+sqlite3
+jq
