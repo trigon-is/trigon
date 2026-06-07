@@ -21,7 +21,8 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 # Playwright + Chromium for --playwright-headless
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/playwright-browsers
 RUN npm install -g playwright \
-    && playwright install --with-deps chromium
+    && playwright install --with-deps chromium \
+    && chmod -R o+w /usr/local/playwright-browsers
 
 # ── Security mode ─────────────────────────────────────────────────────────────
 FROM base AS mode-security
