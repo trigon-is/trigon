@@ -1,7 +1,7 @@
 ARG MODE=dev
 
 # ── Base: OS, Node.js, Claude Code CLI ───────────────────────────────────────
-FROM ubuntu:latest AS base
+FROM ubuntu:24.04 AS base
 RUN apt-get update && apt-get install -y \
     npm nodejs \
     python3 python3-pip python3-venv \
