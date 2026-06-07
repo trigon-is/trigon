@@ -46,7 +46,7 @@ RUN go install -v github.com/tomnomnom/waybackurls@latest || true
 RUN go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest || true
 RUN go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest || true
 # Security research directories and wordlists
-RUN mkdir -p /security/{wordlists,tools,results,scripts} \
+RUN mkdir -p /security/wordlists /security/tools /security/results /security/scripts \
     && wget -q -O /security/wordlists/common.txt \
         https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt \
     && wget -q -O /security/wordlists/subdomains.txt \
