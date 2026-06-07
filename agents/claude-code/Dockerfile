@@ -19,9 +19,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 # Playwright + Chromium for --playwright-headless
+# Install @playwright/mcp only — no separate playwright install — then use whichever
+# playwright @playwright/mcp brought in to install browsers, guaranteeing version alignment.
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/playwright-browsers
-RUN npm install -g playwright \
-    && playwright install --with-deps chromium \
+RUN npm install -g @playwright/mcp \
+    && MCP_ROOT="$(npm root -g)/@playwright/mcp" \
+    && ( "${MCP_ROOT}/node_modules/.bin/playwright" install --with-deps chromium \
+         || npx playwright install --with-deps chromium ) \
     && chmod -R o+w /usr/local/playwright-browsers
 
 # ── Security mode ─────────────────────────────────────────────────────────────
@@ -41,8 +45,10 @@ ENV GOPATH=/root/go
 ENV GO111MODULE=on
 # Playwright + Chromium (for --playwright-headless with web recon workflows)
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/playwright-browsers
-RUN npm install -g playwright \
-    && playwright install --with-deps chromium \
+RUN npm install -g @playwright/mcp \
+    && MCP_ROOT="$(npm root -g)/@playwright/mcp" \
+    && ( "${MCP_ROOT}/node_modules/.bin/playwright" install --with-deps chromium \
+         || npx playwright install --with-deps chromium ) \
     && chmod -R o+w /usr/local/playwright-browsers
 
 # Go security tools (failures tolerated — network issues at build time are transient)
