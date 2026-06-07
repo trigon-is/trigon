@@ -39,6 +39,12 @@ RUN wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz \
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ENV GOPATH=/root/go
 ENV GO111MODULE=on
+# Playwright + Chromium (for --playwright-headless with web recon workflows)
+ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/playwright-browsers
+RUN npm install -g playwright \
+    && playwright install --with-deps chromium \
+    && chmod -R o+w /usr/local/playwright-browsers
+
 # Go security tools (failures tolerated — network issues at build time are transient)
 RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest || true
 RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest || true

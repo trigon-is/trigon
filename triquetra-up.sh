@@ -396,9 +396,7 @@ if [[ $PLAYWRIGHT_HEADLESS -eq 1 ]]; then
   if [[ $PLAYWRIGHT -eq 1 ]]; then
     echo "Error: --playwright and --playwright-headless cannot both be specified." >&2; exit 1
   fi
-  if [[ "$MODE" != "dev" ]]; then
-    echo "Error: --playwright-headless requires dev mode (Chromium is only in the dev image)." >&2; exit 1
-  fi
+
 
   MCP_CONFIG="${PROJECT_ROOT}/.mcp.json"
   [[ -f "$MCP_CONFIG" ]] && cp "$MCP_CONFIG" "${MCP_CONFIG}.backup"
