@@ -52,6 +52,33 @@ Multiple project directories can be passed as positional arguments (up to 5). Fi
 
 ---
 
+## Building images
+
+```bash
+# Build dev image (default)
+./build.sh
+
+# Build security image
+./build.sh --mode security
+
+# Build both
+./build.sh --mode dev && ./build.sh --mode security
+```
+
+The Claude Code CLI version is **pinned** in the build (default: `2.1.144`). To build with a different version:
+
+```bash
+# Pin to a specific version
+./build.sh --claude-version 2.1.200
+
+# Build with latest (unpinned — may introduce regressions)
+./build.sh --claude-version latest
+```
+
+The pin exists because `latest` can introduce breaking changes mid-project. To advance the pin, build with the target version, test, then update the default in `build.sh` and `agents/claude-code/Dockerfile`.
+
+---
+
 ## Provider switching
 
 Triquetra resolves providers in two tiers:

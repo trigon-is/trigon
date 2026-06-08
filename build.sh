@@ -6,21 +6,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENT="claude-code"
 MODE="dev"
 PUSH=0
+CLAUDE_VERSION="2.1.144"
 
 usage() {
-  echo "Usage: $0 [--agent claude-code] [--mode dev|security] [--push]" >&2
+  echo "Usage: $0 [--agent claude-code] [--mode dev|security] [--claude-version VERSION] [--push]" >&2
   exit 1
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --agent=*)  AGENT="${1#--agent=}" ;;
-    --agent)    shift; AGENT="${1:-}" ;;
-    --mode=*)   MODE="${1#--mode=}" ;;
-    --mode)     shift; MODE="${1:-}" ;;
-    --push)     PUSH=1 ;;
-    --help|-h)  usage ;;
-    *)          echo "Unknown argument: $1" >&2; usage ;;
+    --agent=*)          AGENT="${1#--agent=}" ;;
+    --agent)            shift; AGENT="${1:-}" ;;
+    --mode=*)           MODE="${1#--mode=}" ;;
+    --mode)             shift; MODE="${1:-}" ;;
+    --claude-version=*) CLAUDE_VERSION="${1#--claude-version=}" ;;
+    --claude-version)   shift; CLAUDE_VERSION="${1:-}" ;;
+    --push)             PUSH=1 ;;
+    --help|-h)          usage ;;
+    *)                  echo "Unknown argument: $1" >&2; usage ;;
   esac
   shift
 done
@@ -39,10 +42,11 @@ IMAGE_TAG="${AGENT}-${MODE}:latest"
 DOCKERFILE="${SCRIPT_DIR}/agents/${AGENT}/Dockerfile"
 
 echo "Building: ${IMAGE_TAG}"
-echo "Agent: ${AGENT} | Mode: ${MODE}"
+echo "Agent: ${AGENT} | Mode: ${MODE} | Claude Code: ${CLAUDE_VERSION}"
 
 docker build \
   --build-arg MODE="${MODE}" \
+  --build-arg CLAUDE_VERSION="${CLAUDE_VERSION}" \
   -t "${IMAGE_TAG}" \
   -f "${DOCKERFILE}" \
   "${SCRIPT_DIR}"
