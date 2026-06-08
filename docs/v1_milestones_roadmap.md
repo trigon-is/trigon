@@ -11,7 +11,7 @@ Last updated: 2026-06-06
 | M0 | Repository bootstrap | ✅ Done | — |
 | M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) | — |
 | M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) | — |
-| M3 | `--air-gap` network isolation | 🔲 Planned | ½–1 day |
+| M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) | — |
 | M4 | Data mode (LaTeX) | 🔲 Planned | 1–2 days |
 | M5 | OpenCode agent | 🔲 Planned | 1 day spike + 2–3 days |
 | M6 | Publication prep | 🔲 Planned | 1–2 days |
@@ -96,21 +96,34 @@ Triquetra images; implement headless Playwright that works with all providers.
 
 ---
 
-## M3 — `--air-gap` network isolation 🔲 Planned
+## M3 — `--air-gap` network isolation ✅ Done (with known limitation)
 
 **Goal:** hard network isolation for local-model runs (privacy, offline, academic).
 
-**Scope:**
+**Delivered:**
 - Flag renamed `--no-internet` → `--air-gap` (cleaner intent; local LLM ≠ no internet)
 - Runtime-generated compose fragment with `internal: true` Docker network
 - Agent container: `air_gap` network only — no route to internet
-- LiteLLM sidecar: `air_gap` + `default` — can still reach Ollama on host (`host.docker.internal:11434`)
-- `--air-gap` + tier-1 provider (`anthropic`, `openrouter`, `deepseek`) → error
-- `--air-gap` + `--playwright` → error (host network bypasses isolation)
-- `--air-gap` + `--playwright-headless` → warn (Chromium air-gapped; intranet targets only)
-- Validation: `curl https://example.com` inside container must fail
+- LiteLLM sidecar: `air_gap` + `default` — retains host access for Ollama (`host.docker.internal:11434`)
+- `--air-gap` + tier-1 provider → error; `--air-gap` + `--playwright` → error; `--air-gap` + `--playwright-headless` → warn
+- `drop_params: true` added to generated LiteLLM config (fixes Ollama `context_management` rejection)
+- Auth conflict guard: warns when a pre-existing claude.ai OAuth session exists alongside API key injection
 
-**Gate:** `--provider ollama:qwen2.5 --air-gap` verified via failed `curl` inside container
+**Known limitation — Claude Code + air-gap:**
+Claude Code makes hardcoded auth calls to `api.anthropic.com` on startup, independent of
+`ANTHROPIC_BASE_URL`. With `--air-gap` active, these calls are blocked and Claude Code
+cannot start. The network isolation primitive is correct, but **Claude Code is not compatible
+with full air-gap operation**. Two usable modes remain:
+
+| Mode | Works? | Notes |
+|------|--------|-------|
+| `--provider ollama:MODEL` (no `--air-gap`) | ✅ | Inference stays local; Claude Code auth touches claude.ai |
+| `--provider ollama:MODEL --air-gap` | ❌ | Claude Code can't auth — needs OpenCode (M5) |
+
+True zero-Anthropic-contact operation requires a different agent. OpenCode (M5) has no
+hardcoded Anthropic dependency and is the correct long-term path for this use case.
+
+**Gate:** `--provider ollama:qwen2.5-coder:7b` (without `--air-gap`) confirmed reachable via LiteLLM; `curl https://example.com` fails inside an air-gapped container
 
 ---
 

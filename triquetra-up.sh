@@ -263,6 +263,8 @@ if [[ "$PROVIDER_TYPE" == "litellm-proxy" ]]; then
       printf '    litellm_params:\n'
       printf '      model: %s\n' "$FULL_MODEL"
       [[ -n "$PROVIDER_LITELLM_API_BASE" ]] && printf '      api_base: %s\n' "$PROVIDER_LITELLM_API_BASE"
+      printf 'litellm_settings:\n'
+      printf '  drop_params: true\n'
     } > "$LITELLM_CONFIG"
   fi
   export LITELLM_CONFIG
@@ -282,6 +284,8 @@ services:
     volumes:
       - ${LITELLM_CONFIG}:/app/config.yaml:ro
     command: ["--config", "/app/config.yaml", "--port", "4000"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
@@ -474,6 +478,18 @@ COMPOSE_EOF
 
   COMPOSE_FILES+=("-f" "$AIR_GAP_COMPOSE")
   echo "Air-gap: agent container isolated — no outbound internet."
+fi
+
+# ── Auth conflict guard ───────────────────────────────────────────────────────
+# litellm-proxy always injects a dummy ANTHROPIC_API_KEY; a pre-existing
+# claude.ai OAuth session in the settings dir will conflict with it.
+_will_inject_key=0
+[[ "$PROVIDER_TYPE" == "litellm-proxy" ]] && _will_inject_key=1
+[[ -n "${API_KEY_VALUE:-}" ]] && _will_inject_key=1
+if [[ $_will_inject_key -eq 1 ]] && [[ -f "${CLAUDE_SETTINGS_DIR}/.claude.json" ]]; then
+  echo "Warning: '${NAME}' settings dir has an existing claude.ai session." >&2
+  echo "  Injecting an API key alongside an OAuth token causes an auth conflict in Claude Code." >&2
+  echo "  Use --name <new-name> to start with a clean settings dir." >&2
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

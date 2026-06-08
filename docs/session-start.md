@@ -84,7 +84,7 @@ Repo bootstrapped at `/home/bergurth/projects/Triquetra` (= `/app_4` inside cont
   (replaces the old sed hack on compose.yml); incompatible with litellm (detected + errored)
 - `--playwright-headless` parsed but stubbed with warning (M2) — headless Chromium inside the
   container; no `network_mode: host` needed, compatible with all providers including tier-2
-- `--air-gap` implemented (M3): internal Docker network isolates agent; LiteLLM retains host access
+- `--air-gap` implemented (M3): `internal: true` Docker network isolates agent; LiteLLM retains host access; Claude Code itself requires `api.anthropic.com` for auth so full air-gap breaks it — true offline use requires OpenCode (M5)
 - Settings dir renamed: `~/.triquetra-settings-<name>` (was `~/.claude-settings-<name>`)
 - `COMPOSE_CMD` is now a bash array — no more word-split issue with `docker compose`
 
@@ -163,7 +163,7 @@ Current status summary:
 | M0 | Repository bootstrap | ✅ Done |
 | M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) |
 | M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) |
-| M3 | `--air-gap` air-gap | 🔲 Planned |
+| M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) |
 | M4 | Data mode (LaTeX) | 🔲 Planned |
 | M5 | OpenCode agent | 🔲 Planned |
 | M6 | Publication prep | 🔲 Planned |
