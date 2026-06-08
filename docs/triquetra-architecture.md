@@ -234,13 +234,14 @@ each mode's image lean.
 For the local-model-for-sensitive-code use case:
 
 ```bash
-./triquetra-up.sh ~/sensitive-project --provider ollama:qwen2.5 --no-internet
+./triquetra-up.sh ~/sensitive-project --provider ollama:qwen2.5 --air-gap
 ```
 
-The `--no-internet` flag sets the compose network to `none` (no outbound), while
-the LiteLLM sidecar is configured to reach only a local Ollama socket mounted
-from the host. The agent container can read/write the project volume and talk
-to the LiteLLM sidecar but has no other network access.
+The `--air-gap` flag creates an `internal: true` Docker network. The agent
+container is attached only to this network — no route to the internet. The
+LiteLLM sidecar is attached to both the internal network and the default bridge,
+so it can still reach Ollama on the host while the agent cannot reach anything
+outside the compose project.
 
 This satisfies the air-gap requirement: the model and the code never leave the machine.
 
@@ -283,7 +284,7 @@ triquetra/
 │   ├── base.yml                 # shared service definitions
 │   ├── litellm.yml              # sidecar fragment (merged when needed)
 │   ├── playwright.yml           # browser MCP fragment
-│   └── no-internet.yml          # air-gap network fragment
+│   └── (air-gap fragment generated at runtime by triquetra-up.sh)
 │
 └── docs/
     ├── README.md

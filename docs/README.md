@@ -79,7 +79,7 @@ Session:
 
 Network / browser:
   --playwright            Enable Playwright MCP browser automation
-  --no-internet           Disable outbound network (local models only)
+  --air-gap           Disable outbound network (local models only)
 
 API / billing:
   --api                   Inject API key for selected provider
@@ -128,7 +128,7 @@ a composable unit that you chain from outside:
   --prompt-file prompts/02-implement.md
 
 ./triquetra-up.sh ~/project --provider ollama:qwen2.5 \
-  --no-internet --prompt-file prompts/03-review.md
+  --air-gap --prompt-file prompts/03-review.md
 ```
 
 See [pipelines.md](pipelines.md) for patterns, examples, and CI integration.

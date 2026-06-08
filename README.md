@@ -21,7 +21,7 @@ No internal orchestration. Multi-step pipelines are built externally in shell, M
 ./triquetra-up.sh ~/my-project --provider deepseek --api
 
 # Local model, air-gapped (LiteLLM sidecar translates to Ollama)
-./triquetra-up.sh ~/my-project --provider ollama:qwen2.5 --no-internet
+./triquetra-up.sh ~/my-project --provider ollama:qwen2.5 --air-gap
 
 # Security audit (nmap, gobuster, nuclei, Go tools baked in)
 ./triquetra-up.sh ~/my-project --mode security
@@ -44,7 +44,7 @@ No internal orchestration. Multi-step pipelines are built externally in shell, M
 | `--yolo` | off | Skip agent permission prompts (`--dangerously-skip-permissions`) |
 | `--root` | off | Run container as root |
 | `--playwright` | off | Enable Playwright MCP browser automation (connects to host Chrome on port 9222) |
-| `--no-internet` | off | Air-gap: no outbound network. LiteLLM sidecar and project volume still reachable |
+| `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`). LiteLLM sidecar retains host access for model calls. |
 | `--prompt-file PATH` | — | Non-interactive: pass prompt content and exit on completion |
 | `--max-budget USD` | — | Cap API spend for pipeline runs |
 
@@ -149,7 +149,7 @@ triquetra/
 │   ├── base.yml             # shared service definition
 │   ├── litellm.yml          # LiteLLM sidecar fragment (tier-2 providers)
 │   ├── playwright.yml       # browser MCP fragment
-│   └── no-internet.yml      # air-gap network fragment
+│   └── air-gap.yml          # air-gap network fragment (generated at runtime)
 │
 └── docs/
     ├── providers.md

@@ -396,15 +396,15 @@ specifies. The LiteLLM gateway handles tenant-scoped key isolation.
 
 ---
 
-## 7. Privacy and the `--no-internet` mode
+## 7. Privacy and the `--air-gap` mode
 
-The `--no-internet` flag (air-gap mode) in Triquetra has a specific V3 use case:
+The `--air-gap` flag (air-gap mode) in Triquetra has a specific V3 use case:
 career coaches handling candidates whose CV data is confidential (executives, public
 figures, regulated sectors).
 
 In V3, this becomes a premium tier feature:
 - Standard: pipeline runs on shared infrastructure, cloud providers
-- Private: pipeline runs with `--no-internet`, local model (Ollama + Qwen on dedicated
+- Private: pipeline runs with `--air-gap`, local model (Ollama + Qwen on dedicated
   nodes), candidate data never leaves the EU cluster
 
 Kubernetes implementation: a dedicated node pool with no egress network policy, running

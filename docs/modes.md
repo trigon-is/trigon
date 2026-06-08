@@ -134,10 +134,10 @@ Some combinations are particularly useful:
 |----------|------|----------|-----------|
 | Daily dev work | dev | anthropic | Best general capability |
 | Cost-sensitive dev | dev | deepseek | ~4× cheaper, strong coding |
-| Sensitive codebase | dev | ollama:qwen2.5 + --no-internet | Code never leaves machine |
+| Sensitive codebase | dev | ollama:qwen2.5 + --air-gap | Code never leaves machine |
 | Security audit | security | anthropic | Anthropic best for reasoning chains |
 | CTF / rapid recon | security | deepseek | Fast + cheap for iterative recon |
-| Local security research | security | ollama:qwen2.5 + --no-internet | Air-gapped |
+| Local security research | security | ollama:qwen2.5 + --air-gap | Air-gapped |
 | Data analysis | data | anthropic | Complex reasoning over data |
 | Bulk data processing | data | deepseek | Pipeline cost reduction |
 

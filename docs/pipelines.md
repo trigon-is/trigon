@@ -56,7 +56,7 @@ PROJECT=~/my-project
 # Stage 3: review (local, code stays on machine)
 ./triquetra-up.sh "$PROJECT" \
   --provider ollama:qwen2.5-coder:7b \
-  --no-internet \
+  --air-gap \
   --prompt-file ./prompts/03-review.md
 
 # Stage 4: security check (security mode)
@@ -113,7 +113,7 @@ run_with_fallback() {
 
   # Try cheap first
   ./triquetra-up.sh "$project" --provider ollama:qwen2.5-coder:7b \
-    --no-internet --prompt-file "$prompt" && return 0
+    --air-gap --prompt-file "$prompt" && return 0
 
   # Escalate to mid-tier
   ./triquetra-up.sh "$project" --provider deepseek \
@@ -197,7 +197,7 @@ implement:
 
 review:
 	./triquetra-up.sh $(PROJECT) --provider ollama:qwen2.5-coder:7b \
-	  --no-internet --prompt-file prompts/review.md
+	  --air-gap --prompt-file prompts/review.md
 
 audit:
 	./triquetra-up.sh $(PROJECT) --mode security --provider anthropic \
@@ -268,7 +268,7 @@ a detailed plan, then hand the plan to a fast coding model for execution.
 # Stage 3: local model reviews the diff privately
 ./triquetra-up.sh ~/project \
   --provider ollama:qwen2.5-coder:7b \
-  --no-internet \
+  --air-gap \
   --prompt-file prompts/review-diff.md
 ```
 

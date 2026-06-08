@@ -11,7 +11,7 @@ Last updated: 2026-06-06
 | M0 | Repository bootstrap | ✅ Done | — |
 | M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) | — |
 | M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) | — |
-| M3 | `--no-internet` air-gap | 🔲 Planned | ½–1 day |
+| M3 | `--air-gap` network isolation | 🔲 Planned | ½–1 day |
 | M4 | Data mode (LaTeX) | 🔲 Planned | 1–2 days |
 | M5 | OpenCode agent | 🔲 Planned | 1 day spike + 2–3 days |
 | M6 | Publication prep | 🔲 Planned | 1–2 days |
@@ -48,7 +48,7 @@ Core provider-switching mechanism. Tested 2026-06-06 with DeepSeek.
 - `ANTHROPIC_MODEL` only injected when user explicitly specifies a model
 - `--playwright` as dynamically generated compose fragment (`network_mode: host`)
 - `--playwright-headless` flag stubbed with warning (implementation in M2)
-- `--no-internet` flag stubbed with warning (implementation in M3)
+- `--air-gap` flag stubbed with warning (implemented in M3)
 - `--security` backward-compat alias for `--mode security`
 - Settings dir renamed to `~/.triquetra-settings-<name>`
 - `COMPOSE_CMD` as bash array (fixes word-split issue)
@@ -96,17 +96,21 @@ Triquetra images; implement headless Playwright that works with all providers.
 
 ---
 
-## M3 — `--no-internet` air-gap 🔲 Planned
+## M3 — `--air-gap` network isolation 🔲 Planned
 
 **Goal:** hard network isolation for local-model runs (privacy, offline, academic).
 
 **Scope:**
-- `compose/no-internet.yml` network isolation fragment (replaces current stub)
-- LiteLLM sidecar must remain reachable at `http://litellm:4000` (internal compose network)
-  while all outbound internet is blocked
-- Validation method: `curl https://example.com` inside container must fail
+- Flag renamed `--no-internet` → `--air-gap` (cleaner intent; local LLM ≠ no internet)
+- Runtime-generated compose fragment with `internal: true` Docker network
+- Agent container: `air_gap` network only — no route to internet
+- LiteLLM sidecar: `air_gap` + `default` — can still reach Ollama on host (`host.docker.internal:11434`)
+- `--air-gap` + tier-1 provider (`anthropic`, `openrouter`, `deepseek`) → error
+- `--air-gap` + `--playwright` → error (host network bypasses isolation)
+- `--air-gap` + `--playwright-headless` → warn (Chromium air-gapped; intranet targets only)
+- Validation: `curl https://example.com` inside container must fail
 
-**Gate:** `--provider ollama:qwen2.5 --no-internet` verified via failed `curl` inside container
+**Gate:** `--provider ollama:qwen2.5 --air-gap` verified via failed `curl` inside container
 
 ---
 

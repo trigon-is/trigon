@@ -84,7 +84,7 @@ Repo bootstrapped at `/home/bergurth/projects/Triquetra` (= `/app_4` inside cont
   (replaces the old sed hack on compose.yml); incompatible with litellm (detected + errored)
 - `--playwright-headless` parsed but stubbed with warning (M2) — headless Chromium inside the
   container; no `network_mode: host` needed, compatible with all providers including tier-2
-- `--no-internet` parsed but stubbed with warning (M3)
+- `--air-gap` implemented (M3): internal Docker network isolates agent; LiteLLM retains host access
 - Settings dir renamed: `~/.triquetra-settings-<name>` (was `~/.claude-settings-<name>`)
 - `COMPOSE_CMD` is now a bash array — no more word-split issue with `docker compose`
 
@@ -116,7 +116,7 @@ with `DEEPSEEK_API_KEY` set to verify the M1 gate.
 2. **Not married to Claude Code** — open to OpenCode or other agents. Claude Code
    is the default/reference implementation.
 
-3. **Local model support is first-class** — cost, privacy (air-gap with `--no-internet`),
+3. **Local model support is first-class** — cost, privacy (air-gap with `--air-gap`),
    and academic experimentation.
 
 4. **Publishable project standard** — clean architecture, proper docs, extensible
@@ -163,7 +163,7 @@ Current status summary:
 | M0 | Repository bootstrap | ✅ Done |
 | M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) |
 | M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) |
-| M3 | `--no-internet` air-gap | 🔲 Planned |
+| M3 | `--air-gap` air-gap | 🔲 Planned |
 | M4 | Data mode (LaTeX) | 🔲 Planned |
 | M5 | OpenCode agent | 🔲 Planned |
 | M6 | Publication prep | 🔲 Planned |

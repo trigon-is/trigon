@@ -40,7 +40,7 @@ ROOT_MODE=0
 PLAYWRIGHT=0
 PLAYWRIGHT_HEADLESS=0
 USE_API_KEY=0
-NO_INTERNET=0
+AIR_GAP=0
 PROMPT_FILE=""
 MAX_BUDGET_USD=""
 
@@ -78,7 +78,7 @@ while [[ $i -lt ${#FLAGS[@]} ]]; do
     --playwright|--playwrite) PLAYWRIGHT=1 ;;
     --playwright-headless)    PLAYWRIGHT_HEADLESS=1 ;;
     --api)         USE_API_KEY=1 ;;
-    --no-internet) NO_INTERNET=1 ;;
+    --air-gap)    AIR_GAP=1 ;;
     --security)    MODE="security" ;;  # backward compat alias for --mode security
     *)             echo "Warning: unknown flag '$arg'" >&2 ;;
   esac
@@ -421,9 +421,59 @@ COMPOSE_EOF
   export PLAYWRIGHT_ENABLED=1
 fi
 
-# ── --no-internet stub (M3) ───────────────────────────────────────────────────
-if [[ $NO_INTERNET -eq 1 ]]; then
-  echo "Warning: --no-internet is not yet implemented (planned for M3). Flag ignored." >&2
+# ── --air-gap ─────────────────────────────────────────────────────────────────
+if [[ $AIR_GAP -eq 1 ]]; then
+  if [[ $PLAYWRIGHT -eq 1 ]]; then
+    echo "Error: --air-gap and --playwright are incompatible." >&2
+    echo "  --playwright uses network_mode=host, which cannot be isolated." >&2
+    exit 1
+  fi
+  if [[ "$PROVIDER_TYPE" == "direct" || "$PROVIDER_TYPE" == "anthropic-compat" ]]; then
+    echo "Error: --air-gap requires a local provider (e.g. --provider ollama:MODEL)." >&2
+    echo "  '${PROVIDER_NAME}' (${PROVIDER_TYPE}) needs outbound internet to reach its API." >&2
+    exit 1
+  fi
+  if [[ $PLAYWRIGHT_HEADLESS -eq 1 ]]; then
+    echo "Warning: --air-gap with --playwright-headless: Chromium inside the container" >&2
+    echo "  cannot reach external URLs. Intranet and local targets only." >&2
+  fi
+
+  AIR_GAP_COMPOSE="$(mktemp --suffix=.yml)"
+  TEMP_FILES+=("$AIR_GAP_COMPOSE")
+
+  if [[ "$PROVIDER_TYPE" == "litellm-proxy" ]]; then
+    # Agent: air_gap only (no internet). LiteLLM: air_gap + default (needs host for Ollama).
+    cat > "$AIR_GAP_COMPOSE" <<COMPOSE_EOF
+networks:
+  air_gap:
+    driver: bridge
+    internal: true
+
+services:
+  ${SERVICE_NAME}:
+    networks:
+      - air_gap
+  litellm:
+    networks:
+      - air_gap
+      - default
+COMPOSE_EOF
+  else
+    cat > "$AIR_GAP_COMPOSE" <<COMPOSE_EOF
+networks:
+  air_gap:
+    driver: bridge
+    internal: true
+
+services:
+  ${SERVICE_NAME}:
+    networks:
+      - air_gap
+COMPOSE_EOF
+  fi
+
+  COMPOSE_FILES+=("-f" "$AIR_GAP_COMPOSE")
+  echo "Air-gap: agent container isolated — no outbound internet."
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -434,6 +484,7 @@ for i in "${!PROJECT_PATHS[@]}"; do
 done
 echo "Agent: ${AGENT} | Provider: ${PROVIDER_NAME} | Mode: ${MODE} | Model: ${PROVIDER_MODEL:-default}"
 echo "Container: ${NAME} | Settings: ${CLAUDE_SETTINGS_DIR}"
+[[ $AIR_GAP -eq 1 ]] && echo "Network: air-gapped"
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 if [[ -n "$PROMPT_FILE" ]]; then

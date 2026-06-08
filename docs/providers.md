@@ -103,12 +103,12 @@ OpenRouter model slug — see openrouter.ai/models for the full list.
 ollama pull qwen2.5-coder:7b
 
 ./triquetra-up.sh ~/project --provider ollama:qwen2.5-coder:7b
-./triquetra-up.sh ~/project --provider ollama:llama3.3 --no-internet
-./triquetra-up.sh ~/project --provider ollama:codellama:13b --no-internet
+./triquetra-up.sh ~/project --provider ollama:llama3.3 --air-gap
+./triquetra-up.sh ~/project --provider ollama:codellama:13b --air-gap
 ```
 
 The LiteLLM sidecar connects to `host.docker.internal:11434` (the host's Ollama
-daemon). With `--no-internet`, the agent container has no outbound network access
+daemon). With `--air-gap`, the agent container has no outbound network access
 — only internal compose network traffic to the LiteLLM sidecar is allowed.
 
 **Recommended models for coding tasks (2026-06):**
@@ -224,7 +224,7 @@ Within a provider spec, `model_map` defines short aliases:
 | openai/* | yes | yes (API) | enterprise only |
 | bedrock/* | yes (to AWS) | yes | yes (enterprise) |
 
-For sensitive or proprietary code: use `ollama:*` with `--no-internet`.
+For sensitive or proprietary code: use `ollama:*` with `--air-gap`.
 
 ---
 

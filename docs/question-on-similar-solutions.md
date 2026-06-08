@@ -51,7 +51,7 @@
   thing in /app right now. Nothing in the landscape has this.
   3. Mode system generally — baking domain toolsets (dev/security/data) into images at build time and injecting context
   prompts is not something VibePod or Docker Sandboxes do.
-  4. Personal pipeline integration — multi-project mounting, --prompt-file for non-interactive pipeline runs, --no-internet
+  4. Personal pipeline integration — multi-project mounting, --prompt-file for non-interactive pipeline runs, --air-gap
   air-gap — these are your actual workflow needs that nothing off-the-shelf covers exactly.
 
   ---
