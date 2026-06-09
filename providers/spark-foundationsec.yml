@@ -1,0 +1,16 @@
+type: litellm-proxy
+litellm_model_prefix: "ollama/"
+litellm_api_base: "http://host.docker.internal:11435"
+default_model: foundationsec-q4-reasoning:latest
+model_map:
+  default: foundationsec-q4-reasoning:latest
+  quality: foundationsec-reasoning-q8:latest
+  full: foundationsec-8b:latest
+api_key_env: ""
+requires: []
+supports_thinking: false
+notes: "Requires SSH tunnel: ssh -N -L 0.0.0.0:11435:localhost:11434 user@10.30.30.12"
+# Usage: --provider spark-foundationsec              (default: q4-reasoning, fastest)
+#        --provider spark-foundationsec:quality      (q8, better quality)
+#        --provider spark-foundationsec:full         (8B FP16, highest quality)
+# Ollama needs no API key. Tunnel must be open on host before launching.

@@ -1,0 +1,16 @@
+type: litellm-proxy
+litellm_model_prefix: "ollama/"
+litellm_api_base: "http://host.docker.internal:11435"
+default_model: qwen3:32b
+model_map:
+  default: qwen3:32b
+  coder: qwen3-coder:30b
+  large: deepseek-r1:70b
+api_key_env: ""
+requires: []
+supports_thinking: false
+notes: "Requires SSH tunnel: ssh -N -L 0.0.0.0:11435:localhost:11434 user@10.30.30.12"
+# thinking disabled: Qwen3 thinking mode causes very long bake times (7min+) with Claude Code
+# Usage: --provider spark-qwen3              (qwen3:32b — best all-round)
+#        --provider spark-qwen3:coder        (qwen3-coder:30b — 256K ctx, strongest tool calling)
+#        --provider spark-qwen3:large        (deepseek-r1:70b — max reasoning)

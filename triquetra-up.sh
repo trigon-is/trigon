@@ -119,6 +119,7 @@ PROVIDER_LITELLM_PREFIX=""
 PROVIDER_LITELLM_API_BASE=""
 PROVIDER_REQUIRES=""
 PROVIDER_NOTES=""
+PROVIDER_SUPPORTS_THINKING=""
 LITELLM_USER_CONFIG=""
 
 if [[ "$PROVIDER_NAME" == "litellm" ]]; then
@@ -143,6 +144,7 @@ data = {
     'type': '', 'base_url': '', 'default_model': '',
     'api_key_env': '', 'litellm_model_prefix': '',
     'litellm_api_base': '', 'notes': '',
+    'supports_thinking': '',
     'model_map': {}, 'requires': [],
 }
 
@@ -186,6 +188,7 @@ print(f"PROVIDER_LITELLM_PREFIX={sh(data.get('litellm_model_prefix',''))}")
 print(f"PROVIDER_LITELLM_API_BASE={sh(data.get('litellm_api_base',''))}")
 print(f"PROVIDER_REQUIRES={sh(' '.join(data.get('requires',[])))}")
 print(f"PROVIDER_NOTES={sh(data.get('notes',''))}")
+print(f"PROVIDER_SUPPORTS_THINKING={sh(data.get('supports_thinking',''))}")
 PYEOF
   )"
 fi
@@ -263,6 +266,10 @@ if [[ "$PROVIDER_TYPE" == "litellm-proxy" ]]; then
       printf '    litellm_params:\n'
       printf '      model: %s\n' "$FULL_MODEL"
       [[ -n "$PROVIDER_LITELLM_API_BASE" ]] && printf '      api_base: %s\n' "$PROVIDER_LITELLM_API_BASE"
+      if [[ "${PROVIDER_SUPPORTS_THINKING:-}" == "false" ]]; then
+        printf '    model_info:\n'
+        printf '      supports_thinking: false\n'
+      fi
       printf 'litellm_settings:\n'
       printf '  drop_params: true\n'
     } > "$LITELLM_CONFIG"
