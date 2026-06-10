@@ -14,7 +14,8 @@ Last updated: 2026-06-06
 | M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) | — |
 | M4 | Data mode (LaTeX) | 🔲 Planned | 1–2 days |
 | M5 | OpenCode agent | 🔲 Planned | 1 day spike + 2–3 days |
-| M6 | Publication prep | 🔲 Planned | 1–2 days |
+| M6 | Publication prep | 🔲 Planned | 3–4 days |
+| M7 | Network audit log (`--audit`) | 🔲 Planned | 1–2 days |
 
 ---
 
@@ -165,8 +166,42 @@ Parallel spike — does not block M2–M4 critical path.
 After M1–M4 stable.
 
 **Scope:**
-- `README.md` roadmap section + polished quick-start
-- `CONTRIBUTING.md`, `LICENSE` (MIT)
-- GitHub remote: `gh repo create`
+- Rename project Triquetra → Trigon throughout (scripts, docs, image tags, settings dir)
+- `README.md` roadmap section + polished quick-start (public audience framing)
+- `CONTRIBUTING.md`, `LICENSE` (Apache-2.0 — final licence decision to be confirmed at publication)
+- GitHub remote: push to `github.com/trigon-is/trigon`
 - GitHub Actions CI (build + smoke test)
 - Tag `v0.1.0`
+- **Benchmarks:**
+  - `benchmarks/tasks/dev/` — 5 task prompt files + `verify-XX.sh` scripts (see `docs/benchmark-spec.md`)
+  - `benchmarks/tasks/security/` — 5 task prompt files (human-scored for v1)
+  - `benchmarks/run.sh` — runner: launches `trigon-up.sh` per task, calls verify script, writes results CSV
+  - `benchmarks/results/README.md` — generated leaderboard summary table
+  - Baseline run: all bundled providers, dev suite; results committed at launch
+
+---
+
+## M7 — Network audit log (`--audit`) 🔲 Planned
+
+After M6. Post-publication feature targeting compliance and public sector use cases.
+
+**Goal:** produce a structured, human-readable audit trail of all outbound network
+requests made during a Trigon session — a compliance artifact, not just a developer
+debugging tool.
+
+**Scope:**
+- `--audit` flag in `trigon-up.sh`
+- Transparent proxy sidecar (mitmproxy or equivalent) as a generated compose fragment
+- Log format: structured JSON or CSV — timestamp, destination host, method, request size
+- Session-end summary report written to `audit-log/` in the mounted project directory
+- `--air-gap --audit` combination: audit log proves zero outbound requests (strongest
+  possible privacy guarantee for GDPR/public sector contexts)
+
+**Differentiation from VibePod:** VibePod's proxy is framed as developer traffic
+monitoring. Trigon's audit log is framed as a compliance artifact — output readable
+by a data protection officer, not just a developer.
+
+**Gate:** `--audit` run produces a session log and summary report; `--air-gap --audit`
+run produces an empty log confirming zero outbound requests.
+
+**Reference:** `docs/community-and-gtm-strategy.md` — proposed feature section
