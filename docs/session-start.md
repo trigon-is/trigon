@@ -33,7 +33,7 @@ var injection in the launch script.
 
 ---
 
-## Current state (as of 2026-06-04)
+## Current state (as of 2026-06-10)
 
 ### M0 — DONE (committed)
 
@@ -164,21 +164,53 @@ Current status summary:
 | M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) |
 | M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) |
 | M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) |
-| M4 | Data mode (LaTeX) | 🔲 Planned |
-| M5 | OpenCode agent | 🔲 Planned |
+| M4 | Data mode (LaTeX) | ⏸ Deferred |
+| M5 | OpenCode agent | ✅ Done (basic launch confirmed 2026-06-10, further testing indicated) |
 | M6 | Publication prep | 🔲 Planned |
+| M7 | Network audit log (`--audit`) | 🔲 Planned |
+
+---
+
+### M5 — OpenCode agent (implementation notes, 2026-06-10)
+
+All code implemented; gate test (`--agent opencode --prompt-file` exits cleanly)
+in progress. Key decisions made:
+
+- **Install method:** official install script (`curl https://opencode.ai/install | bash`)
+  installs to `/root/.opencode/bin/`; binary copied to `/usr/local/bin/opencode`
+  at build time (symlink fails — `/root/` is `700`, non-root runtime user can't traverse)
+- **Settings persistence:** base.yml already sets `XDG_CONFIG_HOME=/settings/config`
+  and `XDG_DATA_HOME=/settings/data`; OpenCode uses these automatically — no extra
+  volume mounts needed
+- **Provider config:** `agents/opencode/wrapper.sh` reads `TRIGON_PROVIDER_TYPE`
+  (injected by `triquetra-up.sh`) and generates `$XDG_CONFIG_HOME/opencode/config.json`
+  at container startup for non-direct providers; pure Anthropic needs no config file
+- **Pipeline mode:** wrapper handles via `PROMPT_FILE` env var →
+  `opencode --no-tui --message "$(cat $PROMPT_FILE)"`; CMD is never overridden
+- **`TRIGON_PROVIDER_TYPE` / `TRIGON_PROVIDER_MODEL`:** now injected for all agents,
+  not just opencode
+
+**Files added:**
+- `agents/opencode/Dockerfile`
+- `agents/opencode/wrapper.sh`
+- `agents/opencode/provider-map.yml`
+
+**Files changed:**
+- `build.sh` — opencode valid agent; `--opencode-version` flag
+- `triquetra-up.sh` — agent validation unblocked; TRIGON_* env injection;
+  auth guard scoped to claude-code; launch block branches on agent
 
 ---
 
 ## Open questions (still unresolved)
 
+- **M5 further testing** — basic launch confirmed; pipeline mode (`--prompt-file`),
+  litellm-proxy providers, and `--air-gap` not yet tested end-to-end
 - **M1 gate test** — `--provider deepseek` not yet run against a real JSP scout prompt
-- **OpenCode provider adapter** — how `--provider` maps to OpenCode's native config
-  (needs investigation of OpenCode config format; M5 spike task)
 - **Build strategy** — one fat image per agent+mode vs. layered base images
   (current plan: one image per combination; revisit if CI caching becomes painful)
-- **OpenCode settings persistence** — equivalent of `~/.triquetra-settings-<name>` unknown
 - **GitHub remote** — repo not yet pushed; `gh repo create` needed before M6
+- **Rename Triquetra → Trigon** — deferred to M6 (scripts, image tags, settings dir)
 
 ---
 

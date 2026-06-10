@@ -13,7 +13,7 @@ Last updated: 2026-06-06
 | M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) | — |
 | M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) | — |
 | M4 | Data mode (LaTeX) | ⏸ Deferred | 1–2 days |
-| M5 | OpenCode agent | 🔷 Implemented (pre-testing) | 1 day spike + 2–3 days |
+| M5 | OpenCode agent | ✅ Done (basic launch confirmed 2026-06-10) | 1 day spike + 2–3 days |
 | M6 | Publication prep | 🔲 Planned | 3–4 days |
 | M7 | Network audit log (`--audit`) | 🔲 Planned | 1–2 days |
 
@@ -141,23 +141,31 @@ hardcoded Anthropic dependency and is the correct long-term path for this use ca
 
 ---
 
-## M5 — OpenCode agent 🔲 Planned
+## M5 — OpenCode agent ✅ Done (basic launch confirmed 2026-06-10)
 
-Parallel spike — does not block M2–M4 critical path.
+**Goal:** prove provider switching works with a second agent.
 
-**Goal:** prove provider switching works with a second agent (OpenCode natively supports
-75+ providers, making it the long-term answer for the "any provider" use case).
+**Delivered:**
+- `agents/opencode/Dockerfile` — ubuntu:24.04 base; install script → binary copied to
+  `/usr/local/bin/opencode` (symlink fails: `/root/` is 700, non-root runtime user
+  can't traverse; copy is the fix)
+- `agents/opencode/wrapper.sh` — generates `$XDG_CONFIG_HOME/opencode/config.json` at
+  startup from `TRIGON_PROVIDER_TYPE`; pipeline mode via `PROMPT_FILE` env var →
+  `opencode --no-tui --message`; CMD never overridden
+- `agents/opencode/provider-map.yml` — documents provider type → OpenCode config mapping
+- `build.sh` — `opencode` valid agent; `--opencode-version` flag
+- `triquetra-up.sh` — agent validation unblocked; `TRIGON_PROVIDER_TYPE` +
+  `TRIGON_PROVIDER_MODEL` injected for all agents; auth guard scoped to claude-code;
+  launch block branches on `$AGENT`
+- Settings persistence: base.yml `XDG_CONFIG_HOME=/settings/config` and
+  `XDG_DATA_HOME=/settings/data` already handled — no extra mounts needed
 
-**Scope:**
-- Spike: research OpenCode config format, pipeline/non-interactive mode, settings persistence
-- `agents/opencode/Dockerfile`, `wrapper.sh`, `provider-map.yml`
-- `--agent opencode` no longer errors out
+**Gate:** `--agent opencode --provider anthropic` launches and produces output ✓
 
-**Gate:** `--agent opencode --prompt-file` exits cleanly with output
-
-**Open questions:**
-- How `--provider` maps to OpenCode's native provider config
-- Equivalent of `~/.triquetra-settings-<name>` for OpenCode settings persistence
+**Further testing indicated (not yet run):**
+- Pipeline mode: `--prompt-file` exits cleanly with output
+- Tier-2 providers: `--provider ollama:MODEL` via litellm sidecar
+- `--air-gap` with opencode + local model
 
 ---
 
