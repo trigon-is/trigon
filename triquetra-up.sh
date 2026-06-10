@@ -86,10 +86,15 @@ while [[ $i -lt ${#FLAGS[@]} ]]; do
 done
 
 # ── Validate agent ────────────────────────────────────────────────────────────
-if [[ "$AGENT" != "claude-code" ]]; then
-  echo "Error: agent '${AGENT}' not yet supported. Only claude-code is available." >&2
-  exit 1
-fi
+case "$AGENT" in
+  claude-code) ;;
+  opencode)
+    if [[ "$MODE" != "dev" ]]; then
+      echo "Error: --agent opencode currently only supports --mode dev" >&2; exit 1
+    fi
+    ;;
+  *) echo "Error: unknown agent '${AGENT}'. Valid: claude-code, opencode" >&2; exit 1 ;;
+esac
 
 # ── Default container name ────────────────────────────────────────────────────
 [[ -z "$NAME" ]] && NAME="triquetra-${AGENT}"
@@ -366,10 +371,15 @@ case "$PROVIDER_TYPE" in
   litellm-proxy)
     EXTRA_ARGS+=(-e "ANTHROPIC_BASE_URL=http://litellm:4000")
     EXTRA_ARGS+=(-e "ANTHROPIC_MODEL=${PROVIDER_MODEL}")
-    # Claude Code requires a non-empty API key even for local/proxied endpoints
+    # Both Claude Code and OpenCode require a non-empty API key for proxied endpoints
     EXTRA_ARGS+=(-e "ANTHROPIC_API_KEY=${API_KEY_VALUE:-sk-litellm-passthrough}")
     ;;
 esac
+
+# Expose provider type and model to agent wrappers (used by opencode wrapper.sh
+# to generate the correct native provider config)
+EXTRA_ARGS+=(-e "TRIGON_PROVIDER_TYPE=${PROVIDER_TYPE}")
+EXTRA_ARGS+=(-e "TRIGON_PROVIDER_MODEL=${PROVIDER_MODEL}")
 
 # ── Prompt file ───────────────────────────────────────────────────────────────
 if [[ -n "$PROMPT_FILE" ]]; then
@@ -487,16 +497,18 @@ COMPOSE_EOF
   echo "Air-gap: agent container isolated — no outbound internet."
 fi
 
-# ── Auth conflict guard ───────────────────────────────────────────────────────
+# ── Auth conflict guard (claude-code only) ────────────────────────────────────
 # litellm-proxy always injects a dummy ANTHROPIC_API_KEY; a pre-existing
 # claude.ai OAuth session in the settings dir will conflict with it.
-_will_inject_key=0
-[[ "$PROVIDER_TYPE" == "litellm-proxy" ]] && _will_inject_key=1
-[[ -n "${API_KEY_VALUE:-}" ]] && _will_inject_key=1
-if [[ $_will_inject_key -eq 1 ]] && [[ -f "${CLAUDE_SETTINGS_DIR}/.claude.json" ]]; then
-  echo "Warning: '${NAME}' settings dir has an existing claude.ai session." >&2
-  echo "  Injecting an API key alongside an OAuth token causes an auth conflict in Claude Code." >&2
-  echo "  Use --name <new-name> to start with a clean settings dir." >&2
+if [[ "$AGENT" == "claude-code" ]]; then
+  _will_inject_key=0
+  [[ "$PROVIDER_TYPE" == "litellm-proxy" ]] && _will_inject_key=1
+  [[ -n "${API_KEY_VALUE:-}" ]] && _will_inject_key=1
+  if [[ $_will_inject_key -eq 1 ]] && [[ -f "${CLAUDE_SETTINGS_DIR}/.claude.json" ]]; then
+    echo "Warning: '${NAME}' settings dir has an existing claude.ai session." >&2
+    echo "  Injecting an API key alongside an OAuth token causes an auth conflict in Claude Code." >&2
+    echo "  Use --name <new-name> to start with a clean settings dir." >&2
+  fi
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -510,12 +522,25 @@ echo "Container: ${NAME} | Settings: ${CLAUDE_SETTINGS_DIR}"
 [[ $AIR_GAP -eq 1 ]] && echo "Network: air-gapped"
 
 # ── Launch ────────────────────────────────────────────────────────────────────
-if [[ -n "$PROMPT_FILE" ]]; then
+if [[ "$AGENT" == "opencode" ]]; then
+  # OpenCode: wrapper.sh handles pipeline/interactive mode via PROMPT_FILE env var.
+  # We never override the CMD — the wrapper always runs and configures the provider.
+  if [[ -n "$PROMPT_FILE" ]]; then
+    EXTRA_ARGS+=(-e "PROMPT_FILE=/prompt/input.md")
+    echo "Prompt file: $PROMPT_FILE (pipeline mode)"
+  fi
+  [[ $YOLO -eq 1 ]] && echo "Warning: --yolo has no effect for opencode (no equivalent flag)" >&2
+  [[ -n "$MAX_BUDGET_USD" ]] && echo "Warning: --max-budget has no effect for opencode" >&2
+  "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
+    "${EXTRA_ARGS[@]}" -it "$SERVICE_NAME"
+
+elif [[ -n "$PROMPT_FILE" ]]; then
   CLAUDE_ARGS=(-p "$(cat "$PROMPT_FILE")" --no-session-persistence)
   [[ $YOLO -eq 1 ]] && CLAUDE_ARGS+=(--dangerously-skip-permissions)
   [[ -n "$MAX_BUDGET_USD" ]] && CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
   "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
     "${EXTRA_ARGS[@]}" "$SERVICE_NAME" claude "${CLAUDE_ARGS[@]}"
+
 else
   if [[ $YOLO -eq 1 ]]; then
     echo "YOLO: passing --dangerously-skip-permissions to claude"

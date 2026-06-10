@@ -12,8 +12,8 @@ Last updated: 2026-06-06
 | M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) | — |
 | M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) | — |
 | M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) | — |
-| M4 | Data mode (LaTeX) | 🔲 Planned | 1–2 days |
-| M5 | OpenCode agent | 🔲 Planned | 1 day spike + 2–3 days |
+| M4 | Data mode (LaTeX) | ⏸ Deferred | 1–2 days |
+| M5 | OpenCode agent | 🔷 Implemented (pre-testing) | 1 day spike + 2–3 days |
 | M6 | Publication prep | 🔲 Planned | 3–4 days |
 | M7 | Network audit log (`--audit`) | 🔲 Planned | 1–2 days |
 

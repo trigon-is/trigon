@@ -1,0 +1,38 @@
+# OpenCode provider mapping
+#
+# Documents how Triquetra's provider types map to OpenCode's native config.
+# wrapper.sh uses TRIGON_PROVIDER_TYPE (injected by triquetra-up.sh) to decide
+# which config to generate at container startup.
+#
+# OpenCode natively supports many providers via env vars and its own config
+# system — it does not need the ANTHROPIC_BASE_URL trick used by Claude Code.
+
+# ── Tier: direct ─────────────────────────────────────────────────────────────
+# No config.json generated. OpenCode detects the provider via env vars.
+#
+# anthropic  →  ANTHROPIC_API_KEY in env → OpenCode uses anthropic provider natively
+
+# ── Tier: anthropic-compat ───────────────────────────────────────────────────
+# wrapper.sh writes config.json with anthropic provider + custom baseURL.
+# Requires the upstream endpoint to speak the Anthropic Messages API format.
+#
+# openrouter (anthropic mode)  →  anthropic provider, baseURL=https://openrouter.ai/api/v1
+
+# ── Tier: litellm-proxy ──────────────────────────────────────────────────────
+# wrapper.sh writes config.json pointing at the LiteLLM sidecar (http://litellm:4000),
+# which translates any backend into Anthropic-format for OpenCode.
+#
+# deepseek   →  litellm sidecar → anthropic provider, baseURL=http://litellm:4000
+# ollama     →  litellm sidecar → anthropic provider, baseURL=http://litellm:4000
+# openai     →  litellm sidecar → anthropic provider, baseURL=http://litellm:4000
+# bedrock    →  litellm sidecar → anthropic provider, baseURL=http://litellm:4000
+
+# ── Future: native OpenCode providers ────────────────────────────────────────
+# OpenCode natively supports many providers without needing LiteLLM.
+# These could bypass the litellm sidecar entirely by writing a config.json
+# that uses OpenCode's native provider ID directly.
+# Candidate for a future refactor once the spike is proven.
+#
+# openai     →  openai provider, OPENAI_API_KEY in env
+# groq       →  groq provider, GROQ_API_KEY in env
+# google     →  google provider, GOOGLE_API_KEY in env
