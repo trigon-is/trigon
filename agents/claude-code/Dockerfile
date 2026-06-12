@@ -8,8 +8,12 @@ RUN apt-get update && apt-get install -y \
     git curl wget \
     ripgrep fd-find \
     && rm -rf /var/lib/apt/lists/*
-ARG CLAUDE_VERSION=2.1.144
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_VERSION}
+ARG CLAUDE_VERSION
+RUN if [ -n "${CLAUDE_VERSION}" ]; then \
+      npm install -g @anthropic-ai/claude-code@${CLAUDE_VERSION}; \
+    else \
+      npm install -g @anthropic-ai/claude-code; \
+    fi
 
 # ── Dev mode ──────────────────────────────────────────────────────────────────
 FROM base AS mode-dev

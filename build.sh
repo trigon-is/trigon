@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENT="claude-code"
 MODE="dev"
 PUSH=0
-CLAUDE_VERSION="2.1.144"
+CLAUDE_VERSION=""
 OPENCODE_VERSION="latest"
 
 usage() {
@@ -60,7 +60,7 @@ if [[ "$AGENT" == "opencode" ]]; then
     -f "${DOCKERFILE}" \
     "${SCRIPT_DIR}"
 else
-  echo "Agent: ${AGENT} | Mode: ${MODE} | Claude Code: ${CLAUDE_VERSION}"
+  echo "Agent: ${AGENT} | Mode: ${MODE} | Claude Code: ${CLAUDE_VERSION:-latest}"
   docker build \
     --build-arg MODE="${MODE}" \
     --build-arg CLAUDE_VERSION="${CLAUDE_VERSION}" \
