@@ -1,0 +1,38 @@
+name: CI
+
+# Run on every push and pull request. These checks are intentionally cheap:
+# they need no Docker, no API keys, and no secrets, so they finish in seconds.
+on:
+  push:
+  pull_request:
+
+jobs:
+  shell:
+    name: Shell lint & smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      # Static analysis. --severity=warning catches genuine bugs (bad quoting,
+      # undefined variables, broken tests) while skipping style/info nags.
+      # Run the stricter default locally with: shellcheck <script>
+      - name: shellcheck
+        run: shellcheck --severity=warning trigon-up.sh build.sh agents/*/wrapper.sh
+
+      # Parse each script without executing it — catches unclosed if/fi,
+      # broken quotes, and other syntax errors.
+      - name: bash syntax check
+        run: |
+          for f in trigon-up.sh build.sh agents/*/wrapper.sh; do
+            echo "bash -n $f"
+            bash -n "$f"
+          done
+
+      # Smoke test: --help exits before touching Docker, so it confirms the
+      # entrypoint parses and runs end-to-end without needing a container.
+      - name: trigon-up.sh --help runs
+        run: ./trigon-up.sh --help
