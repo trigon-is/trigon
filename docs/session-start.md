@@ -50,7 +50,21 @@ var injection in the launch script.
   README updated from MIT), `.gitignore` added, README accuracy pass (un-pegged version text,
   dir structure, `--playwright-headless` in flags table), planning docs moved to `docs/internal/`,
   `trigon-up.sh` gained `--help`/usage, Playwright `.mcp.json` now restored/removed on exit,
-  VPN leftover removed from `agents/claude-code/wrapper.sh`. Remote target: `github.com/trigon-is/trigon`.
+  VPN leftover removed from `agents/claude-code/wrapper.sh`.
+- **M6 pass 2 (publication hygiene) done 2026-06-13 — repo now PUSHED and CI GREEN:**
+  - Repo live at `github.com/trigon-is/trigon` (branch: `master`).
+  - **README public-audience rewrite:** added Prerequisites, Authentication, Agents, and
+    Project-status sections; three-axes framing moved to root README; `docs/README.md`
+    reduced to a pure docs index; remote-Ollama SSH-tunnel guide relocated to `docs/providers.md`
+    (and its stale `ollama.yml` example fixed). Badges: License, Status, live CI.
+  - **CI:** `.github/workflows/ci.yml` — shellcheck (`--severity=warning`) + `bash -n` +
+    `trigon-up.sh --help` on push/PR. First run was red; fixed SC2011/SC2155/SC2015 in
+    `trigon-up.sh`; now green.
+  - **`CONTRIBUTING.md`** added (mirrors the CI checks for local use).
+  - **`docs/agents.md` accuracy sweep:** corrected image names (`claude-code-dev:latest`,
+    `opencode-dev:latest`, not `trigon-*`), the OpenCode config path (`config.json` at
+    `$XDG_CONFIG_HOME/opencode/`), the install method (official script, not
+    `ghcr.io/anomalyco/opencode`), and removed a resolved "TBC" note.
 
 ### M0 — DONE (committed)
 
@@ -184,7 +198,7 @@ Current status summary:
 | M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) |
 | M4 | Data mode (LaTeX) | ⏸ Deferred |
 | M5 | OpenCode agent | ✅ Done (basic launch confirmed 2026-06-10, further testing indicated) |
-| M6 | Publication prep | 🔲 Planned |
+| M6 | Publication prep | 🔶 In progress (hygiene + docs + CI done; benchmarks + `v0.1.0` tag remain) |
 | M7 | Network audit log (`--audit`) | 🔲 Planned |
 
 ---
@@ -227,8 +241,30 @@ in progress. Key decisions made:
 - **M1 gate test** — `--provider deepseek` not yet run against a real JSP scout prompt
 - **Build strategy** — one fat image per agent+mode vs. layered base images
   (current plan: one image per combination; revisit if CI caching becomes painful)
-- **GitHub remote** — pre-push hygiene done (M6 pass 1); push to
-  `github.com/trigon-is/trigon` pending (run `gh repo create` on the host)
+- **GitHub remote** — DONE. Repo pushed to `github.com/trigon-is/trigon`
+  (branch `master`); CI green.
+
+---
+
+## Next session — start here (M6 remainder)
+
+Repo is pushed and CI is green. Remaining M6 work, in suggested order:
+
+1. **Benchmark suite** (the big item — well-suited to the vendored AI-DLC workflow):
+   - `benchmarks/tasks/dev/` — 5 task prompt files + `verify-XX.sh` scripts
+   - `benchmarks/tasks/security/` — 5 task prompt files (human-scored for v1)
+   - `benchmarks/run.sh` — runner: launches `trigon-up.sh` per task, calls the
+     verify script, writes a results CSV
+   - `benchmarks/results/README.md` — generated leaderboard summary
+   - Baseline run across bundled providers; commit results
+   - **Design decisions to settle first:** scoring method, which providers form the
+     baseline, how the runner invokes `trigon-up.sh` (pipeline mode + `--max-budget`)
+2. **Tag `v0.1.0`** once benchmarks land.
+
+Loose ends / not blocking:
+- M5 further testing (pipeline mode, litellm-proxy, `--air-gap` end-to-end)
+- M1 gate test (`--provider deepseek` against a real JSP scout prompt)
+- Consider renaming branch `master` → `main` (GitHub default) before more contributors arrive
 
 ---
 

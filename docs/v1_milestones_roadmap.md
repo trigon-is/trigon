@@ -14,7 +14,7 @@ Last updated: 2026-06-13
 | M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) | — |
 | M4 | Data mode (LaTeX) | ⏸ Deferred | 1–2 days |
 | M5 | OpenCode agent | ✅ Done (basic launch confirmed 2026-06-10) | 1 day spike + 2–3 days |
-| M6 | Publication prep | 🔲 Planned | 3–4 days |
+| M6 | Publication prep | 🔶 In progress (hygiene/docs/CI done; benchmarks + tag remain) | 3–4 days |
 | M7 | Network audit log (`--audit`) | 🔲 Planned | 1–2 days |
 
 ---
@@ -188,13 +188,16 @@ After M1–M4 stable.
     (`litellm_host`/`litellm_port` → `litellm_api_base`/`litellm_model_prefix`)
   - Remaining nice-to-haves (deferred): CI badge once Actions exists,
     provider-switching ASCII diagram, demo recording
-- `CONTRIBUTING.md`
-- Doc-accuracy sweep still outstanding: `docs/agents.md` references nonexistent
-  image names (`trigon-claude-code` → actual `claude-code-dev:latest`) and an
-  `opencode.config.json` path that's really `config.json`; verify before publication
-- GitHub remote: push to `github.com/trigon-is/trigon`
-- GitHub Actions CI (build + smoke test)
-- Tag `v0.1.0`
+- ✅ `CONTRIBUTING.md` — done 2026-06-13 (mirrors the CI checks for local use)
+- ✅ Doc-accuracy sweep of `docs/agents.md` — done 2026-06-13: fixed image names
+  (`claude-code-dev:latest` / `opencode-dev:latest`), the OpenCode config path
+  (`config.json` at `$XDG_CONFIG_HOME/opencode/`), the install method (official
+  script, not `ghcr.io/anomalyco/opencode`), and removed a resolved "TBC" note
+- ✅ GitHub remote: pushed to `github.com/trigon-is/trigon` (branch `master`) — done 2026-06-13
+- ✅ GitHub Actions CI — done 2026-06-13: `.github/workflows/ci.yml` runs
+  shellcheck + `bash -n` + `--help` smoke test on push/PR; green. (Build/launch
+  smoke test deferred — current job needs no Docker.)
+- Tag `v0.1.0` (after benchmarks)
 - **Benchmarks:**
   - `benchmarks/tasks/dev/` — 5 task prompt files + `verify-XX.sh` scripts (see `docs/benchmark-spec.md`)
   - `benchmarks/tasks/security/` — 5 task prompt files (human-scored for v1)

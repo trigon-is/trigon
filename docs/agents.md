@@ -26,7 +26,7 @@ The Anthropic Claude Code CLI (`@anthropic-ai/claude-code`).
 - Interactive TUI is Anthropic-specific
 - Closed source
 
-**Container image:** `trigon-claude-code`  
+**Container image:** `claude-code-<mode>:latest` (e.g. `claude-code-dev:latest`)  
 **Entrypoint:** `wrapper.sh` → injects mode context → `claude [args]`  
 **Provider support:** all tiers via `ANTHROPIC_BASE_URL` / LiteLLM sidecar
 
@@ -54,7 +54,6 @@ OpenCode — an open-source AI coding agent with native multi-provider support.
 - Open source, TypeScript
 - Built-in agent specialisation: `build` agent (full access), `plan` agent
   (read-only analysis), `general` subagent (complex search)
-- Docker-native: official image at `ghcr.io/anomalyco/opencode`
 
 **Limitations:**
 - Younger project, fewer integrations than Claude Code
@@ -63,8 +62,10 @@ OpenCode — an open-source AI coding agent with native multi-provider support.
 - Provider config format differs from Trigon's `--provider` flag (adapter
   needed — see below)
 
-**Container image:** `trigon-opencode`  
-**Entrypoint:** `wrapper.sh` → generates `opencode.config.json` → `opencode [args]`  
+**Container image:** `opencode-dev:latest`  
+**Install:** built by Trigon via the official install script
+(`curl -fsSL https://opencode.ai/install | bash`) — see `agents/opencode/Dockerfile`  
+**Entrypoint:** `wrapper.sh` → generates `config.json` → `opencode [args]`  
 **Provider support:** via OpenCode's own config system
 
 ```bash
@@ -74,8 +75,9 @@ OpenCode — an open-source AI coding agent with native multi-provider support.
 ```
 
 **Provider adapter:** because OpenCode has its own provider config, Trigon's
-`wrapper.sh` generates an `opencode.config.json` at container startup from the
-`--provider` argument. The mapping lives in `agents/opencode/provider-map.yml`.
+`wrapper.sh` generates a `config.json` (at `$XDG_CONFIG_HOME/opencode/config.json`)
+at container startup from the `--provider` argument. The mapping lives in
+`agents/opencode/provider-map.yml`.
 
 ---
 
@@ -91,7 +93,7 @@ OpenCode — an open-source AI coding agent with native multi-provider support.
 | Open source | no | yes |
 | Pipeline / `--no-tui` mode | yes (`-p` flag) | yes |
 | Actively maintained | yes | yes |
-| Docker image available | via Trigon build | ghcr.io/anomalyco/opencode |
+| Container image | via Trigon build | via Trigon build |
 
 ---
 
@@ -106,7 +108,7 @@ agents/
     wrapper.sh          # mode context injection, then exec claude
   opencode/
     Dockerfile          # opencode image + mode packages
-    wrapper.sh          # generates opencode.config.json, then exec opencode
+    wrapper.sh          # generates config.json, then exec opencode
     provider-map.yml    # maps Trigon provider names → opencode config
 ```
 
@@ -133,7 +135,6 @@ Internally: `claude -p "$(cat /prompt/input.md)" --no-session-persistence`
   --prompt-file ./plan.md --provider anthropic
 ```
 Internally: `opencode --no-tui --message "$(cat /prompt/input.md)"`
-(exact flag TBC pending OpenCode CLI documentation review)
 
 ---
 
