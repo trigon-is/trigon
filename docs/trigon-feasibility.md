@@ -1,4 +1,4 @@
-# Triquetra — Feasibility & Architecture Exploration
+# Trigon — Feasibility & Architecture Exploration
 
 **Date:** 2026-06-02  
 **Context:** Exploring evolution of the `claude-in-container` harness (`/app`) into a
@@ -58,13 +58,13 @@ Anthropic-compatible APIs, just inject env vars. For others, spin up a LiteLLM
 sidecar container in the compose network.
 
 ```
-./triquetra-up.sh /my/project --provider claude          # current behavior
-./triquetra-up.sh /my/project --provider deepseek        # ANTHROPIC_BASE_URL → DeepSeek
-./triquetra-up.sh /my/project --provider openrouter/qwen # route via OpenRouter
-./triquetra-up.sh /my/project --provider ollama:qwen2.5  # route via local LiteLLM sidecar
+./trigon-up.sh /my/project --provider claude          # current behavior
+./trigon-up.sh /my/project --provider deepseek        # ANTHROPIC_BASE_URL → DeepSeek
+./trigon-up.sh /my/project --provider openrouter/qwen # route via OpenRouter
+./trigon-up.sh /my/project --provider ollama:qwen2.5  # route via local LiteLLM sidecar
 ```
 
-**What changes**: `claude-up.sh` (rename to `triquetra-up.sh`), compose files get an
+**What changes**: `claude-up.sh` (rename to `trigon-up.sh`), compose files get an
 optional `litellm` service, Dockerfile unchanged.
 
 **What stays locked**: The agent is still Claude Code CLI. Its tool-use loop, TUI, and
@@ -84,10 +84,10 @@ Make LiteLLM a first-class compose service, always running. The agent container 
 `litellm-config.yaml` that gets volume-mounted.
 
 ```
-triquetra/
+trigon/
   compose.yml              — agent service + litellm service
   litellm-config.yaml      — provider routing table (user edits this)
-  triquetra-up.sh          — picks agent profile + compose
+  trigon-up.sh          — picks agent profile + compose
   providers/
     claude.yaml
     deepseek.yaml
@@ -114,12 +114,12 @@ natively supports multiple providers via its own config system, has a praised TU
 can run containerized.
 
 ```
-./triquetra-up.sh --agent claude --provider anthropic   # current
-./triquetra-up.sh --agent claude --provider deepseek    # Option A
-./triquetra-up.sh --agent opencode --provider gemini    # new agent + different provider
+./trigon-up.sh --agent claude --provider anthropic   # current
+./trigon-up.sh --agent claude --provider deepseek    # Option A
+./trigon-up.sh --agent opencode --provider gemini    # new agent + different provider
 ```
 
-Each agent has its own Dockerfile and compose service definition. The `triquetra-up.sh`
+Each agent has its own Dockerfile and compose service definition. The `trigon-up.sh`
 script selects the profile. Shared: volume mounting logic, settings persistence,
 Playwright MCP, pipeline mode.
 
@@ -131,7 +131,7 @@ agent distinction might suit structured pipelines better).
 
 ### Option D — Fresh Start / True Provider-Agnostic Harness (weeks–months)
 
-Design Triquetra from scratch as a meta-harness:
+Design Trigon from scratch as a meta-harness:
 - **Provider layer**: LiteLLM or a custom router; swap freely
 - **Agent layer**: pluggable CLI adapters (Claude Code, OpenCode, Aider, custom agents)
 - **Tool layer**: domain-specific MCP servers (security, Django, data science, etc.)
@@ -182,7 +182,7 @@ could route based on task type detected from the prompt.
 | Fresh start? | **Not yet** — the existing harness is solid and under-leveraged |
 | Different harness? | OpenCode is the most credible alternative foundation |
 
-**Recommended path for Triquetra v0:**
+**Recommended path for Trigon v0:**
 Start with Option B (LiteLLM sidecar as permanent infra + `--provider` flag). This
 unlocks the provider-agnostic story with minimal disruption to the working system, and
 the architecture naturally extends toward Options C and D when needed.
@@ -199,7 +199,7 @@ the architecture naturally extends toward Options C and D when needed.
    requirements?
 4. **Pipeline sophistication**: Is `--prompt-file` enough, or do you need DAG-style
    multi-step pipelines where agents hand off to each other?
-5. **Target users**: Is Triquetra personal tooling, team tooling, or intended to be
+5. **Target users**: Is Trigon personal tooling, team tooling, or intended to be
    a publishable project others use?
 
 ---

@@ -1,6 +1,6 @@
 services:
-  triquetra:
-    image: ${TRIQUETRA_IMAGE:-claude-code-env}
+  trigon:
+    image: ${TRIGON_IMAGE:-claude-code-env}
     working_dir: /app
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     environment:

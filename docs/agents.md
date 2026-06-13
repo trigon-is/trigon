@@ -26,14 +26,14 @@ The Anthropic Claude Code CLI (`@anthropic-ai/claude-code`).
 - Interactive TUI is Anthropic-specific
 - Closed source
 
-**Container image:** `triquetra-claude-code`  
+**Container image:** `trigon-claude-code`  
 **Entrypoint:** `wrapper.sh` → injects mode context → `claude [args]`  
 **Provider support:** all tiers via `ANTHROPIC_BASE_URL` / LiteLLM sidecar
 
 ```bash
-./triquetra-up.sh ~/project                          # default
-./triquetra-up.sh ~/project --agent claude-code      # explicit
-./triquetra-up.sh ~/project --agent claude-code --provider deepseek
+./trigon-up.sh ~/project                          # default
+./trigon-up.sh ~/project --agent claude-code      # explicit
+./trigon-up.sh ~/project --agent claude-code --provider deepseek
 ```
 
 **CLAUDE.md integration:** works as normal. Place a `CLAUDE.md` in your project
@@ -60,20 +60,20 @@ OpenCode — an open-source AI coding agent with native multi-provider support.
 - Younger project, fewer integrations than Claude Code
 - No CLAUDE.md equivalent (uses its own config format)
 - MCP support: partial / in progress (check upstream)
-- Provider config format differs from Triquetra's `--provider` flag (adapter
+- Provider config format differs from Trigon's `--provider` flag (adapter
   needed — see below)
 
-**Container image:** `triquetra-opencode`  
+**Container image:** `trigon-opencode`  
 **Entrypoint:** `wrapper.sh` → generates `opencode.config.json` → `opencode [args]`  
 **Provider support:** via OpenCode's own config system
 
 ```bash
-./triquetra-up.sh ~/project --agent opencode
-./triquetra-up.sh ~/project --agent opencode --provider anthropic
-./triquetra-up.sh ~/project --agent opencode --provider openrouter/google/gemini-2.5-pro
+./trigon-up.sh ~/project --agent opencode
+./trigon-up.sh ~/project --agent opencode --provider anthropic
+./trigon-up.sh ~/project --agent opencode --provider openrouter/google/gemini-2.5-pro
 ```
 
-**Provider adapter:** because OpenCode has its own provider config, Triquetra's
+**Provider adapter:** because OpenCode has its own provider config, Trigon's
 `wrapper.sh` generates an `opencode.config.json` at container startup from the
 `--provider` argument. The mapping lives in `agents/opencode/provider-map.yml`.
 
@@ -91,7 +91,7 @@ OpenCode — an open-source AI coding agent with native multi-provider support.
 | Open source | no | yes |
 | Pipeline / `--no-tui` mode | yes (`-p` flag) | yes |
 | Actively maintained | yes | yes |
-| Docker image available | via Triquetra build | ghcr.io/anomalyco/opencode |
+| Docker image available | via Trigon build | ghcr.io/anomalyco/opencode |
 
 ---
 
@@ -107,11 +107,11 @@ agents/
   opencode/
     Dockerfile          # opencode image + mode packages
     wrapper.sh          # generates opencode.config.json, then exec opencode
-    provider-map.yml    # maps Triquetra provider names → opencode config
+    provider-map.yml    # maps Trigon provider names → opencode config
 ```
 
 The compose service for each agent is defined in `compose/base.yml` as a
-separate service with its own image reference. `triquetra-up.sh` selects the
+separate service with its own image reference. `trigon-up.sh` selects the
 service based on `--agent`.
 
 ---
@@ -122,14 +122,14 @@ Both agents support non-interactive pipeline mode:
 
 **claude-code:**
 ```bash
-./triquetra-up.sh ~/project --agent claude-code \
+./trigon-up.sh ~/project --agent claude-code \
   --prompt-file ./plan.md --provider deepseek
 ```
 Internally: `claude -p "$(cat /prompt/input.md)" --no-session-persistence`
 
 **opencode:**
 ```bash
-./triquetra-up.sh ~/project --agent opencode \
+./trigon-up.sh ~/project --agent opencode \
   --prompt-file ./plan.md --provider anthropic
 ```
 Internally: `opencode --no-tui --message "$(cat /prompt/input.md)"`
@@ -146,7 +146,7 @@ Internally: `opencode --no-tui --message "$(cat /prompt/input.md)"`
    - Accept provider configuration (env vars or generated config)
 3. Add a service fragment to `compose/base.yml`
 4. If the agent has its own provider format, add `agents/myagent/provider-map.yml`
-5. Update `triquetra-up.sh` to handle `--agent myagent`
+5. Update `trigon-up.sh` to handle `--agent myagent`
 6. Document in this file
 
 Candidate agents for future support:

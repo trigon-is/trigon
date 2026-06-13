@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-TRIQUETRA_MODE="${TRIQUETRA_MODE:-dev}"
+TRIGON_MODE="${TRIGON_MODE:-dev}"
 
 # VPN auto-connect
 if [[ -f "/vpn/configs/client.ovpn" ]]; then
@@ -13,11 +13,11 @@ if [[ -f "/vpn/configs/client.ovpn" ]]; then
 fi
 
 # Inject mode context into ~/.claude/CLAUDE.md (Claude Code reads this automatically)
-CONTEXT_FILE="/modes/${TRIQUETRA_MODE}/context.md"
+CONTEXT_FILE="/modes/${TRIGON_MODE}/context.md"
 if [[ -f "$CONTEXT_FILE" && -s "$CONTEXT_FILE" ]]; then
     mkdir -p /settings/.claude
     cp "$CONTEXT_FILE" /settings/.claude/CLAUDE.md
-    echo "Mode context loaded (${TRIQUETRA_MODE})"
+    echo "Mode context loaded (${TRIGON_MODE})"
 fi
 
 exec claude "$@"

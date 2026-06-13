@@ -1,4 +1,4 @@
-# Triquetra
+# Trigon
 
 A provider-agnostic, agent-flexible container harness for LLM-assisted development
 and automation.
@@ -7,7 +7,7 @@ and automation.
 
 ## What it is
 
-Triquetra wraps an AI coding agent in a Docker container and lets you swap the model
+Trigon wraps an AI coding agent in a Docker container and lets you swap the model
 provider at launch time — no code changes, no re-configuration between runs. Each
 invocation is a self-contained unit: one agent, one provider, one mode, one optional
 prompt. Multi-step pipelines are built by chaining invocations from outside the system.
@@ -20,22 +20,22 @@ The name reflects the three-axis design: **provider × agent × mode**.
 
 ```bash
 # Interactive session — Claude Code, Anthropic, dev tooling (default)
-./triquetra-up.sh ~/my-project
+./trigon-up.sh ~/my-project
 
 # Same project, different provider
-./triquetra-up.sh ~/my-project --provider deepseek
+./trigon-up.sh ~/my-project --provider deepseek
 
 # Local model, no data leaves the machine
-./triquetra-up.sh ~/my-project --provider ollama:qwen2.5
+./trigon-up.sh ~/my-project --provider ollama:qwen2.5
 
 # Non-interactive pipeline run
-./triquetra-up.sh ~/my-project --provider deepseek --prompt-file ./prompts/plan.md
+./trigon-up.sh ~/my-project --provider deepseek --prompt-file ./prompts/plan.md
 
 # Security audit mode
-./triquetra-up.sh ~/my-project --mode security --provider anthropic
+./trigon-up.sh ~/my-project --mode security --provider anthropic
 
 # Different agent frontend
-./triquetra-up.sh ~/my-project --agent opencode --provider openrouter/google/gemini-2.5-pro
+./trigon-up.sh ~/my-project --agent opencode --provider openrouter/google/gemini-2.5-pro
 ```
 
 ---
@@ -56,7 +56,7 @@ technically supported). Any mode works with any agent.
 ## Full usage
 
 ```
-./triquetra-up.sh [PROJECT_PATH ...] [FLAGS]
+./trigon-up.sh [PROJECT_PATH ...] [FLAGS]
 
 Project paths:
   One or more directories to mount. First → /app, subsequent → /app_2, /app_3 ...
@@ -73,7 +73,7 @@ Mode:
   --mode NAME             dev (default), security
 
 Session:
-  --name NAME             Container name (default: triquetra-<agent>)
+  --name NAME             Container name (default: trigon-<agent>)
   --yolo                  Skip agent permission prompts
   --root                  Run container as root
 
@@ -101,9 +101,9 @@ ANTHROPIC_MODEL      override the model name
 ```
 
 For providers that expose an Anthropic-compatible `/v1/messages` endpoint (DeepSeek,
-OpenRouter, etc.), Triquetra injects these variables — no proxy required.
+OpenRouter, etc.), Trigon injects these variables — no proxy required.
 
-For providers that do not (Ollama, OpenAI, Bedrock), Triquetra spins up a LiteLLM
+For providers that do not (Ollama, OpenAI, Bedrock), Trigon spins up a LiteLLM
 sidecar container in the same compose network. LiteLLM exposes an Anthropic-compatible
 endpoint and translates requests to the target provider. The agent container sees no
 difference.
@@ -114,20 +114,20 @@ See [providers.md](providers.md) for the full provider reference.
 
 ## Pipelines
 
-Triquetra does not orchestrate multi-step pipelines internally. Instead, each run is
+Trigon does not orchestrate multi-step pipelines internally. Instead, each run is
 a composable unit that you chain from outside:
 
 ```bash
 #!/usr/bin/env bash
 # example: plan with reasoning model → implement with fast model → review locally
 
-./triquetra-up.sh ~/project --provider deepseek:deepseek-reasoner \
+./trigon-up.sh ~/project --provider deepseek:deepseek-reasoner \
   --prompt-file prompts/01-plan.md
 
-./triquetra-up.sh ~/project --provider anthropic \
+./trigon-up.sh ~/project --provider anthropic \
   --prompt-file prompts/02-implement.md
 
-./triquetra-up.sh ~/project --provider ollama:qwen2.5 \
+./trigon-up.sh ~/project --provider ollama:qwen2.5 \
   --air-gap --prompt-file prompts/03-review.md
 ```
 
@@ -137,9 +137,9 @@ See [pipelines.md](pipelines.md) for patterns, examples, and CI integration.
 
 ## Relationship to claude-in-container
 
-Triquetra is a generalisation of the `claude-in-container` project (`/app`). The
-existing dev and security modes map directly to Triquetra's `--mode dev` and
-`--mode security`. If you currently use `claude-up.sh`, `triquetra-up.sh` is a
+Trigon is a generalisation of the `claude-in-container` project (`/app`). The
+existing dev and security modes map directly to Trigon's `--mode dev` and
+`--mode security`. If you currently use `claude-up.sh`, `trigon-up.sh` is a
 drop-in replacement for the default case.
 
 ---
@@ -150,5 +150,5 @@ drop-in replacement for the default case.
 - [agents.md](agents.md) — supported agents, differences, adding new ones
 - [modes.md](modes.md) — domain toolsets, adding new modes
 - [pipelines.md](pipelines.md) — external orchestration patterns and examples
-- [triquetra-architecture.md](triquetra-architecture.md) — design rationale and internals
-- [triquetra-feasibility.md](triquetra-feasibility.md) — original feasibility analysis
+- [trigon-architecture.md](trigon-architecture.md) — design rationale and internals
+- [trigon-feasibility.md](trigon-feasibility.md) — original feasibility analysis

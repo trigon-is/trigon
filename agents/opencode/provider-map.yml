@@ -1,7 +1,7 @@
 # OpenCode provider mapping
 #
-# Documents how Triquetra's provider types map to OpenCode's native config.
-# wrapper.sh uses TRIGON_PROVIDER_TYPE (injected by triquetra-up.sh) to decide
+# Documents how Trigon's provider types map to OpenCode's native config.
+# wrapper.sh uses TRIGON_PROVIDER_TYPE (injected by trigon-up.sh) to decide
 # which config to generate at container startup.
 #
 # OpenCode natively supports many providers via env vars and its own config

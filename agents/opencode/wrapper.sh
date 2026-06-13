@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-TRIQUETRA_MODE="${TRIQUETRA_MODE:-dev}"
+TRIGON_MODE="${TRIGON_MODE:-dev}"
 TRIGON_PROVIDER_TYPE="${TRIGON_PROVIDER_TYPE:-direct}"
 TRIGON_PROVIDER_MODEL="${TRIGON_PROVIDER_MODEL:-}"
 
@@ -43,7 +43,7 @@ EOF
   litellm-proxy)
     # LiteLLM sidecar exposes an Anthropic-compatible API at http://litellm:4000.
     # Point OpenCode's anthropic provider at the sidecar.
-    # Note: ANTHROPIC_API_KEY is already set to sk-litellm-passthrough by triquetra-up.sh.
+    # Note: ANTHROPIC_API_KEY is already set to sk-litellm-passthrough by trigon-up.sh.
     MODEL="${TRIGON_PROVIDER_MODEL:-default-model}"
     cat > "$OPENCODE_CONFIG_FILE" <<EOF
 {
@@ -63,7 +63,7 @@ EOF
 esac
 
 # ── Pipeline mode ─────────────────────────────────────────────────────────────
-# triquetra-up.sh sets PROMPT_FILE=/prompt/input.md and mounts the file there.
+# trigon-up.sh sets PROMPT_FILE=/prompt/input.md and mounts the file there.
 if [[ -n "${PROMPT_FILE:-}" && -f "$PROMPT_FILE" ]]; then
   echo "OpenCode: pipeline mode (${PROMPT_FILE})"
   exec opencode --no-tui --message "$(cat "$PROMPT_FILE")"

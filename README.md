@@ -1,9 +1,9 @@
-# Triquetra
+# Trigon
 
 A provider-agnostic, agent-flexible Docker container harness for LLM-assisted development and automation.
 
 ```
-./triquetra-up.sh [PROJECT_PATH ...] [FLAGS]
+./trigon-up.sh [PROJECT_PATH ...] [FLAGS]
 ```
 
 Each invocation is one self-contained unit: **agent + provider + mode → one container run → output / exit**.  
@@ -15,19 +15,19 @@ No internal orchestration. Multi-step pipelines are built externally in shell, M
 
 ```bash
 # Default: Claude Code, Anthropic, dev mode
-./triquetra-up.sh ~/my-project
+./trigon-up.sh ~/my-project
 
 # DeepSeek for cost-sensitive tasks (uses ANTHROPIC_BASE_URL trick, no proxy)
-./triquetra-up.sh ~/my-project --provider deepseek --api
+./trigon-up.sh ~/my-project --provider deepseek --api
 
 # Local model, air-gapped (LiteLLM sidecar translates to Ollama)
-./triquetra-up.sh ~/my-project --provider ollama:qwen2.5 --air-gap
+./trigon-up.sh ~/my-project --provider ollama:qwen2.5 --air-gap
 
 # Security audit (nmap, gobuster, nuclei, Go tools baked in)
-./triquetra-up.sh ~/my-project --mode security
+./trigon-up.sh ~/my-project --mode security
 
 # Non-interactive pipeline run
-./triquetra-up.sh ~/my-project --prompt-file scout.md --provider deepseek --api
+./trigon-up.sh ~/my-project --prompt-file scout.md --provider deepseek --api
 ```
 
 ---
@@ -39,7 +39,7 @@ No internal orchestration. Multi-step pipelines are built externally in shell, M
 | `--provider NAME` | `anthropic` | Model provider. See [Provider reference](docs/providers.md) |
 | `--agent NAME` | `claude-code` | Agent frontend. See [Agent reference](docs/agents.md) |
 | `--mode NAME` | `dev` | Domain toolset (`dev`, `security`, `data`). See [Modes](docs/modes.md) |
-| `--name NAME` | `triquetra-<agent>` | Container name (also determines settings persistence directory) |
+| `--name NAME` | `trigon-<agent>` | Container name (also determines settings persistence directory) |
 | `--api` | off | Inject API key for the selected provider (`~/.anthropic_api_key` or `api_key_env` from provider YAML) |
 | `--yolo` | off | Skip agent permission prompts (`--dangerously-skip-permissions`) |
 | `--root` | off | Run container as root |
@@ -81,7 +81,7 @@ The pin exists because `latest` can introduce breaking changes mid-project. To a
 
 ## Provider switching
 
-Triquetra resolves providers in two tiers:
+Trigon resolves providers in two tiers:
 
 **Tier 1 — direct (no proxy, zero overhead)**  
 Providers that speak the Anthropic Messages API natively.  
@@ -141,7 +141,7 @@ notes: "Requires SSH tunnel: ssh -N -L 0.0.0.0:11435:localhost:11434 user@remote
 
 **4. Launch:**
 ```bash
-./triquetra-up.sh ~/my-project --provider my-remote-ollama --api
+./trigon-up.sh ~/my-project --provider my-remote-ollama --api
 ```
 
 ### Model selection for remote Ollama
@@ -167,8 +167,8 @@ Not all models work equally well through the LiteLLM→Ollama translation layer:
 ## Directory structure
 
 ```
-triquetra/
-├── triquetra-up.sh          # main entrypoint
+trigon/
+├── trigon-up.sh          # main entrypoint
 ├── build.sh                 # build agent images
 │
 ├── agents/
@@ -204,20 +204,20 @@ triquetra/
     ├── agents.md
     ├── modes.md
     ├── pipelines.md
-    └── triquetra-architecture.md
+    └── trigon-architecture.md
 ```
 
 ---
 
 ## Settings persistence
 
-Each named container (`--name`) gets its own settings directory on the host at `~/.triquetra-settings-<name>`. This holds Claude Code's OAuth token, conversation history, and configuration — it persists across container restarts.
+Each named container (`--name`) gets its own settings directory on the host at `~/.trigon-settings-<name>`. This holds Claude Code's OAuth token, conversation history, and configuration — it persists across container restarts.
 
 ---
 
 ## Origin
 
-Triquetra generalises [claude-in-container](https://github.com/Bergurth/claude-in-container) along three axes: provider, agent, and mode. The working `claude-code + anthropic + dev/security` implementation is the reference; the rest of the system layers on top without breaking it.
+Trigon generalises [claude-in-container](https://github.com/Bergurth/claude-in-container) along three axes: provider, agent, and mode. The working `claude-code + anthropic + dev/security` implementation is the reference; the rest of the system layers on top without breaking it.
 
 ---
 

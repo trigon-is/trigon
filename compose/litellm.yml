@@ -1,6 +1,6 @@
 # LiteLLM sidecar fragment — merged into base.yml when a tier-2 provider is selected.
 #
-# This file is a reference template. triquetra-up.sh generates an equivalent
+# This file is a reference template. trigon-up.sh generates an equivalent
 # fragment at runtime (into a temp file) with the correct volume path and env vars
 # for the selected provider injected in.
 #
@@ -8,7 +8,7 @@
 # below resolves correctly if this static file is used directly.
 
 services:
-  triquetra:
+  trigon:
     depends_on:
       litellm:
         condition: service_healthy

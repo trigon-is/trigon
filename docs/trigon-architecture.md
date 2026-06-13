@@ -1,4 +1,4 @@
-# Triquetra — Architecture Design
+# Trigon — Architecture Design
 
 **Date:** 2026-06-02  
 **Status:** Design exploration
@@ -7,7 +7,7 @@
 
 ## Core Model
 
-Triquetra is a **composable container harness** for LLM-assisted development and
+Trigon is a **composable container harness** for LLM-assisted development and
 automation. Each invocation is one self-contained unit:
 
 ```
@@ -22,13 +22,13 @@ The harness stays stateless and single-purpose per run.
 ┌─────────────────────────────────────────────────────┐
 │  External Orchestrator (user's shell / CI / cron)   │
 │                                                      │
-│   triquetra-up.sh --provider deepseek  \             │
+│   trigon-up.sh --provider deepseek  \             │
 │                   --prompt-file plan.md              │
 │         ↓ output written to shared volume            │
-│   triquetra-up.sh --provider anthropic \             │
+│   trigon-up.sh --provider anthropic \             │
 │                   --prompt-file implement.md         │
 │         ↓ output written to shared volume            │
-│   triquetra-up.sh --provider ollama:qwen2.5 \        │
+│   trigon-up.sh --provider ollama:qwen2.5 \        │
 │                   --prompt-file review.md            │
 └─────────────────────────────────────────────────────┘
 ```
@@ -40,7 +40,7 @@ Each container is ignorant of the others. Coordination is the caller's problem.
 ## Interface
 
 ```
-./triquetra-up.sh [PROJECT_PATH ...] [FLAGS]
+./trigon-up.sh [PROJECT_PATH ...] [FLAGS]
 
 Provider flags:
   --provider NAME         Select model provider (default: anthropic)
@@ -56,7 +56,7 @@ Mode flags:
                           Supported: dev, security, (extensible)
 
 Session flags:
-  --name NAME             Container name (default: triquetra-<agent>)
+  --name NAME             Container name (default: trigon-<agent>)
   --yolo                  Skip agent permission prompts
   --root                  Run container as root
   --playwright            Enable Playwright MCP browser automation
@@ -133,7 +133,7 @@ The agent container sets `ANTHROPIC_BASE_URL=http://litellm:4000`.
 # compose.yml (simplified)
 services:
   agent:
-    image: triquetra-claude-code  # or triquetra-opencode
+    image: trigon-claude-code  # or trigon-opencode
     environment:
       - ANTHROPIC_BASE_URL=http://litellm:4000
       - ANTHROPIC_MODEL=${MODEL_NAME}
@@ -178,7 +178,7 @@ The `--agent` flag selects the Docker image and entrypoint.
 
 ### claude-code (default)
 
-- Image: `triquetra-claude-code`
+- Image: `trigon-claude-code`
 - Based on: `ubuntu:latest`
 - Entrypoint: `claude` (or wrapper script for mode-specific context injection)
 - Provider support: tier 1 (env vars) or tier 2 (LiteLLM sidecar)
@@ -186,7 +186,7 @@ The `--agent` flag selects the Docker image and entrypoint.
 
 ### opencode
 
-- Image: `triquetra-opencode`
+- Image: `trigon-opencode`
 - Based on: `ghcr.io/anomalyco/opencode` or custom build
 - Entrypoint: `opencode`
 - Provider support: OpenCode's native config system (separate from ANTHROPIC_BASE_URL)
@@ -200,7 +200,7 @@ The agent abstraction makes it straightforward to add:
 - Custom agents (script-based, API-based)
 
 Each agent needs: a Dockerfile, a compose service fragment, and a provider adapter
-that maps Triquetra's `--provider` to whatever config format the agent expects.
+that maps Trigon's `--provider` to whatever config format the agent expects.
 
 ---
 
@@ -234,7 +234,7 @@ each mode's image lean.
 For the local-model-for-sensitive-code use case:
 
 ```bash
-./triquetra-up.sh ~/sensitive-project --provider ollama:qwen2.5 --air-gap
+./trigon-up.sh ~/sensitive-project --provider ollama:qwen2.5 --air-gap
 ```
 
 The `--air-gap` flag creates an `internal: true` Docker network. The agent
@@ -250,9 +250,9 @@ This satisfies the air-gap requirement: the model and the code never leave the m
 ## Directory Structure (proposed)
 
 ```
-triquetra/
+trigon/
 │
-├── triquetra-up.sh              # main entrypoint script
+├── trigon-up.sh              # main entrypoint script
 ├── build.sh                     # build all agent images
 │
 ├── agents/
@@ -284,7 +284,7 @@ triquetra/
 │   ├── base.yml                 # shared service definitions
 │   ├── litellm.yml              # sidecar fragment (merged when needed)
 │   ├── playwright.yml           # browser MCP fragment
-│   └── (air-gap fragment generated at runtime by triquetra-up.sh)
+│   └── (air-gap fragment generated at runtime by trigon-up.sh)
 │
 └── docs/
     ├── README.md
@@ -295,17 +295,17 @@ triquetra/
 ```
 
 Compose files are assembled at runtime using `docker compose -f base.yml -f litellm.yml ...`
-fragment merging, driven by `triquetra-up.sh`.
+fragment merging, driven by `trigon-up.sh`.
 
 ---
 
 ## Relationship to /app
 
-Triquetra is not a fork of `/app` — it's a generalisation. The existing system becomes
+Trigon is not a fork of `/app` — it's a generalisation. The existing system becomes
 the `claude-code` agent with `dev` and `security` modes as the reference implementation.
 
 Migration path:
-1. Port `claude-up.sh` logic → `triquetra-up.sh` (add `--provider`, `--agent`, `--mode`)
+1. Port `claude-up.sh` logic → `trigon-up.sh` (add `--provider`, `--agent`, `--mode`)
 2. Port `Dockerfile` → `agents/claude-code/Dockerfile`
 3. Port `Dockerfile.security` tool set → `modes/security/`
 4. Port `security-claude-wrapper.sh` pattern → `agents/claude-code/wrapper.sh` (mode-aware)
@@ -321,13 +321,13 @@ layered on top.
 ## Open Implementation Questions
 
 1. **Provider YAML schema** — define the exact spec for `providers/*.yml` before
-   writing `triquetra-up.sh`. This is the API surface for extensibility.
+   writing `trigon-up.sh`. This is the API surface for extensibility.
 
 2. **Agent provider adapter** — OpenCode does not use `ANTHROPIC_BASE_URL`. How does
    the `--provider` flag map to OpenCode's config? Options:
    - Generate an `opencode.config.json` at runtime from the provider spec
    - Maintain separate provider YAMLs per agent
-   - Use OpenCode's built-in provider selection and expose it through Triquetra flags
+   - Use OpenCode's built-in provider selection and expose it through Trigon flags
 
 3. **Build strategy** — one fat image per agent+mode combo, or a base agent image
    with mode packages installed separately? Fat images are simpler; separate layers

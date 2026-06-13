@@ -24,7 +24,7 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 # ── Final ─────────────────────────────────────────────────────────────────────
 FROM mode-${MODE} AS final
 ARG MODE
-ENV TRIQUETRA_MODE=${MODE}
+ENV TRIGON_MODE=${MODE}
 COPY agents/opencode/wrapper.sh /usr/local/bin/trigon-wrapper
 RUN chmod +x /usr/local/bin/trigon-wrapper
 COPY modes /modes

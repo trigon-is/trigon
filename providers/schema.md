@@ -1,6 +1,6 @@
 # Provider YAML Schema Reference
 
-Each file in `providers/` defines one provider. `triquetra-up.sh` reads these
+Each file in `providers/` defines one provider. `trigon-up.sh` reads these
 at launch time to determine how to configure the container environment.
 
 ---
@@ -92,7 +92,7 @@ The `--provider` argument is parsed as follows:
 
 ## LiteLLM config generation (litellm-proxy)
 
-`triquetra-up.sh` generates a minimal LiteLLM config at runtime into a temp file
+`trigon-up.sh` generates a minimal LiteLLM config at runtime into a temp file
 and mounts it into the sidecar container. The generated config looks like:
 
 ```yaml

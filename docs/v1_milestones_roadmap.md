@@ -1,4 +1,4 @@
-# Triquetra v0.1 — Milestones Roadmap
+# Trigon v0.1 — Milestones Roadmap
 
 Last updated: 2026-06-06
 
@@ -9,7 +9,7 @@ Last updated: 2026-06-06
 | Milestone | Title | Status | Est. effort |
 |-----------|-------|--------|-------------|
 | M0 | Repository bootstrap | ✅ Done | — |
-| M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) | — |
+| M1 | `trigon-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) | — |
 | M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) | — |
 | M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) | — |
 | M4 | Data mode (LaTeX) | ⏸ Deferred | 1–2 days |
@@ -21,7 +21,7 @@ Last updated: 2026-06-06
 
 ## M0 — Repository bootstrap ✅ Done
 
-Repo created at `/home/bergurth/projects/Triquetra` (= `/app_4` inside container).
+Repo created at `/home/bergurth/projects/Trigon` (= `/app_4` inside container).
 
 **Delivered:**
 - Skeleton directories: `agents/claude-code/`, `modes/{dev,security,data}/`, `compose/`, `providers/`
@@ -36,7 +36,7 @@ Repo created at `/home/bergurth/projects/Triquetra` (= `/app_4` inside container
 
 ---
 
-## M1 — `triquetra-up.sh` with `--provider` ✅ Done
+## M1 — `trigon-up.sh` with `--provider` ✅ Done
 
 Core provider-switching mechanism. Tested 2026-06-06 with DeepSeek.
 
@@ -51,7 +51,7 @@ Core provider-switching mechanism. Tested 2026-06-06 with DeepSeek.
 - `--playwright-headless` flag stubbed with warning (implementation in M2)
 - `--air-gap` flag stubbed with warning (implemented in M3)
 - `--security` backward-compat alias for `--mode security`
-- Settings dir renamed to `~/.triquetra-settings-<name>`
+- Settings dir renamed to `~/.trigon-settings-<name>`
 - `COMPOSE_CMD` as bash array (fixes word-split issue)
 
 **Gate:** `--provider deepseek:smart` interactive session confirmed working ✓
@@ -62,7 +62,7 @@ Core provider-switching mechanism. Tested 2026-06-06 with DeepSeek.
 |-----|-----|
 | DeepSeek API renamed models (`deepseek-chat` → `deepseek-v4-flash`, `deepseek-reasoner` → `deepseek-v4-pro`) | Updated `providers/deepseek.yml` model names |
 | DeepSeek is OpenAI-format, not Anthropic-format — `ANTHROPIC_BASE_URL` trick doesn't work | Reclassified DeepSeek from `anthropic-compat` (tier-1) to `litellm-proxy` (tier-2) in `providers/deepseek.yml` |
-| LiteLLM config `model_name` used full prefixed name (`deepseek/deepseek-v4-pro`) but Claude Code sends bare name (`deepseek-v4-pro`) → model lookup failure | Fixed `triquetra-up.sh`: `model_name` now uses `$PROVIDER_MODEL`, `litellm_params.model` uses `$FULL_MODEL` |
+| LiteLLM config `model_name` used full prefixed name (`deepseek/deepseek-v4-pro`) but Claude Code sends bare name (`deepseek-v4-pro`) → model lookup failure | Fixed `trigon-up.sh`: `model_name` now uses `$PROVIDER_MODEL`, `litellm_params.model` uses `$FULL_MODEL` |
 | Claude.ai session token in settings dir conflicts with injected `ANTHROPIC_API_KEY` | Workaround: use a fresh `--name` that has no prior session. Script warning to be added (open item) |
 
 **Open items from M1:**
@@ -75,16 +75,16 @@ Core provider-switching mechanism. Tested 2026-06-06 with DeepSeek.
 ## M2 — Mode-aware build + `--playwright-headless` ✅ Done
 
 **Goal:** decouple images from `/app`; make `build.sh` the authoritative way to produce
-Triquetra images; implement headless Playwright that works with all providers.
+Trigon images; implement headless Playwright that works with all providers.
 
 **Delivered:**
 - `build.sh --agent claude-code [--mode dev|security]` — produces `claude-code-dev:latest` / `claude-code-security:latest`
 - Single `Dockerfile` with `ARG MODE` and multi-stage: `base → mode-dev|mode-security → final`; `Dockerfile.security` removed
 - `modes/dev/packages.txt` + `requirements.txt` — dev mode package lists (postgresql-client, sqlite3, jq, Django stack)
 - `modes/security/packages.txt` + `requirements.txt` — security mode package lists (nmap, gobuster, Go tools, etc.)
-- `wrapper.sh` generalised: injects `modes/${TRIQUETRA_MODE}/context.md` into `/settings/.claude/CLAUDE.md` at startup
+- `wrapper.sh` generalised: injects `modes/${TRIGON_MODE}/context.md` into `/settings/.claude/CLAUDE.md` at startup
 - `modes/security/context.md` cleaned to raw prompt text only
-- `TRIQUETRA_IMAGE` set to `{agent}-{mode}:latest` in `triquetra-up.sh`; `compose/security.yml` image override removed
+- `TRIGON_IMAGE` set to `{agent}-{mode}:latest` in `trigon-up.sh`; `compose/security.yml` image override removed
 - `--playwright-headless` implemented: headless MCP config, compose fragment with `ipc: host` + `SYS_PTRACE`; dev-mode only; incompatible with `--playwright`
 - Chromium installed at build time via `playwright install --with-deps chromium`; browsers at `/usr/local/playwright-browsers`
 
@@ -154,7 +154,7 @@ hardcoded Anthropic dependency and is the correct long-term path for this use ca
   `opencode --no-tui --message`; CMD never overridden
 - `agents/opencode/provider-map.yml` — documents provider type → OpenCode config mapping
 - `build.sh` — `opencode` valid agent; `--opencode-version` flag
-- `triquetra-up.sh` — agent validation unblocked; `TRIGON_PROVIDER_TYPE` +
+- `trigon-up.sh` — agent validation unblocked; `TRIGON_PROVIDER_TYPE` +
   `TRIGON_PROVIDER_MODEL` injected for all agents; auth guard scoped to claude-code;
   launch block branches on `$AGENT`
 - Settings persistence: base.yml `XDG_CONFIG_HOME=/settings/config` and
@@ -174,7 +174,7 @@ hardcoded Anthropic dependency and is the correct long-term path for this use ca
 After M1–M4 stable.
 
 **Scope:**
-- Rename project Triquetra → Trigon throughout (scripts, docs, image tags, settings dir)
+- Rename project Trigon → Trigon throughout (scripts, docs, image tags, settings dir)
 - `README.md` roadmap section + polished quick-start (public audience framing)
 - `CONTRIBUTING.md`, `LICENSE` (Apache-2.0 — final licence decision to be confirmed at publication)
 - GitHub remote: push to `github.com/trigon-is/trigon`

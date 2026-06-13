@@ -73,9 +73,9 @@ RUN mkdir -p /security/wordlists /security/tools /security/results /security/scr
 # ── Final: select mode, install wrapper + mode contexts ───────────────────────
 FROM mode-${MODE} AS final
 ARG MODE
-ENV TRIQUETRA_MODE=${MODE}
-COPY agents/claude-code/wrapper.sh /usr/local/bin/triquetra-wrapper
-RUN chmod +x /usr/local/bin/triquetra-wrapper
+ENV TRIGON_MODE=${MODE}
+COPY agents/claude-code/wrapper.sh /usr/local/bin/trigon-wrapper
+RUN chmod +x /usr/local/bin/trigon-wrapper
 COPY modes /modes
 WORKDIR /app
-CMD ["/usr/local/bin/triquetra-wrapper"]
+CMD ["/usr/local/bin/trigon-wrapper"]

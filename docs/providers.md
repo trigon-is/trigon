@@ -1,6 +1,6 @@
 # Providers
 
-Triquetra decouples the agent (what talks to you) from the provider (which LLM
+Trigon decouples the agent (what talks to you) from the provider (which LLM
 answers). This document covers every supported provider, how to configure it, and
 the two underlying resolution mechanisms.
 
@@ -11,7 +11,7 @@ the two underlying resolution mechanisms.
 ### Tier 1 — Native Anthropic-compatible
 
 These providers expose a `/v1/messages` endpoint that the Anthropic SDK speaks
-natively. No proxy container is needed. Triquetra sets:
+natively. No proxy container is needed. Trigon sets:
 
 ```
 ANTHROPIC_BASE_URL=<provider endpoint>
@@ -22,7 +22,7 @@ The agent container starts immediately with no additional services.
 
 ### Tier 2 — LiteLLM sidecar
 
-These providers speak OpenAI format or require credential translation. Triquetra
+These providers speak OpenAI format or require credential translation. Trigon
 starts a LiteLLM container in the same compose network and points the agent at it:
 
 ```
@@ -43,8 +43,8 @@ LiteLLM handles the translation. The agent is unaware of the difference.
 **Models:** claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5, ...
 
 ```bash
-./triquetra-up.sh ~/project                         # OAuth/Pro
-./triquetra-up.sh ~/project --api                   # API key from ~/.anthropic_api_key
+./trigon-up.sh ~/project                         # OAuth/Pro
+./trigon-up.sh ~/project --api                   # API key from ~/.anthropic_api_key
 ```
 
 No `ANTHROPIC_BASE_URL` is set. Standard Claude Code behaviour.
@@ -61,8 +61,8 @@ No `ANTHROPIC_BASE_URL` is set. Standard Claude Code behaviour.
 
 ```bash
 export DEEPSEEK_API_KEY=sk-...
-./triquetra-up.sh ~/project --provider deepseek
-./triquetra-up.sh ~/project --provider deepseek:deepseek-reasoner  # reasoning model
+./trigon-up.sh ~/project --provider deepseek
+./trigon-up.sh ~/project --provider deepseek:deepseek-reasoner  # reasoning model
 ```
 
 DeepSeek exposes a native Anthropic-format API. No proxy required. Note: review
@@ -80,9 +80,9 @@ DeepSeek's privacy policy regarding training data before using with proprietary 
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
-./triquetra-up.sh ~/project --provider openrouter/google/gemini-2.5-pro
-./triquetra-up.sh ~/project --provider openrouter/meta-llama/llama-3.3-70b-instruct
-./triquetra-up.sh ~/project --provider openrouter/deepseek/deepseek-r1
+./trigon-up.sh ~/project --provider openrouter/google/gemini-2.5-pro
+./trigon-up.sh ~/project --provider openrouter/meta-llama/llama-3.3-70b-instruct
+./trigon-up.sh ~/project --provider openrouter/deepseek/deepseek-r1
 ```
 
 OpenRouter is the recommended path for: model comparison, accessing models not
@@ -102,9 +102,9 @@ OpenRouter model slug — see openrouter.ai/models for the full list.
 # Start Ollama on host first
 ollama pull qwen2.5-coder:7b
 
-./triquetra-up.sh ~/project --provider ollama:qwen2.5-coder:7b
-./triquetra-up.sh ~/project --provider ollama:llama3.3 --air-gap
-./triquetra-up.sh ~/project --provider ollama:codellama:13b --air-gap
+./trigon-up.sh ~/project --provider ollama:qwen2.5-coder:7b
+./trigon-up.sh ~/project --provider ollama:llama3.3 --air-gap
+./trigon-up.sh ~/project --provider ollama:codellama:13b --air-gap
 ```
 
 The LiteLLM sidecar connects to `host.docker.internal:11434` (the host's Ollama
@@ -127,8 +127,8 @@ daemon). With `--air-gap`, the agent container has no outbound network access
 
 ```bash
 export OPENAI_API_KEY=sk-...
-./triquetra-up.sh ~/project --provider openai/gpt-4o
-./triquetra-up.sh ~/project --provider openai/o3
+./trigon-up.sh ~/project --provider openai/gpt-4o
+./trigon-up.sh ~/project --provider openai/o3
 ```
 
 ---
@@ -140,7 +140,7 @@ export OPENAI_API_KEY=sk-...
 **Models:** anthropic.claude-sonnet-4-6, meta.llama3-3-70b-instruct-v1, ...
 
 ```bash
-./triquetra-up.sh ~/project --provider bedrock/anthropic.claude-sonnet-4-6
+./trigon-up.sh ~/project --provider bedrock/anthropic.claude-sonnet-4-6
 ```
 
 Useful for teams already operating in AWS who want consolidated billing or
@@ -154,10 +154,10 @@ VPC-private inference.
 **Required:** a valid LiteLLM YAML config file
 
 Escape hatch for any provider or routing configuration not covered above.
-Write a `litellm-config.yaml` and point Triquetra at it:
+Write a `litellm-config.yaml` and point Trigon at it:
 
 ```bash
-./triquetra-up.sh ~/project --provider litellm:./my-litellm-config.yaml
+./trigon-up.sh ~/project --provider litellm:./my-litellm-config.yaml
 ```
 
 LiteLLM config reference: https://docs.litellm.ai/docs/proxy/configs
@@ -167,7 +167,7 @@ LiteLLM config reference: https://docs.litellm.ai/docs/proxy/configs
 ## Provider config files
 
 Each built-in provider has a YAML spec in `providers/`. These are read by
-`triquetra-up.sh` to resolve environment variables, base URLs, and whether the
+`trigon-up.sh` to resolve environment variables, base URLs, and whether the
 LiteLLM sidecar is needed.
 
 ```yaml
@@ -207,8 +207,8 @@ Within a provider spec, `model_map` defines short aliases:
 | `reason` | Reasoning-optimised model (where available) |
 
 ```bash
-./triquetra-up.sh ~/project --provider deepseek:fast   # deepseek-chat
-./triquetra-up.sh ~/project --provider deepseek:smart  # deepseek-reasoner
+./trigon-up.sh ~/project --provider deepseek:fast   # deepseek-chat
+./trigon-up.sh ~/project --provider deepseek:smart  # deepseek-reasoner
 ```
 
 ---
@@ -231,7 +231,7 @@ For sensitive or proprietary code: use `ollama:*` with `--air-gap`.
 ## Adding a new provider
 
 1. Create `providers/myprovider.yml` following the schema above
-2. If `type: anthropic-compat`: add env var handling to `triquetra-up.sh`
+2. If `type: anthropic-compat`: add env var handling to `trigon-up.sh`
 3. If `type: litellm-proxy`: add a LiteLLM model entry to `compose/litellm.yml`
 4. Add an entry to the table in this document
 5. Test with `--prompt-file` in pipeline mode

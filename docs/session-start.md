@@ -1,10 +1,10 @@
-# Triquetra — Session Start Primer
+# Trigon — Session Start Primer
 
 Use this file at the beginning of a new session to restore full context quickly.
 
 ---
 
-## What Triquetra is
+## What Trigon is
 
 A provider-agnostic, agent-flexible Docker container harness for LLM-assisted
 development and automation. It generalises the existing `claude-in-container`
@@ -37,7 +37,7 @@ var injection in the launch script.
 
 ### M0 — DONE (committed)
 
-Repo bootstrapped at `/home/bergurth/projects/Triquetra` (= `/app_4` inside container).
+Repo bootstrapped at `/home/bergurth/projects/Trigon` (= `/app_4` inside container).
 - Skeleton directories created: `agents/claude-code/`, `modes/{dev,security,data}/`, `compose/`, `providers/`
 - Design docs moved to `docs/`
 - Reference implementation files copied from `/app` into correct locations
@@ -53,9 +53,9 @@ Repo bootstrapped at `/home/bergurth/projects/Triquetra` (= `/app_4` inside cont
 - Single `agents/claude-code/Dockerfile` with multi-stage: `base → mode-{dev|security} → final`; `Dockerfile.security` deleted
 - `modes/dev/packages.txt` + `requirements.txt` — apt/pip package lists for dev mode
 - `modes/security/packages.txt` + `requirements.txt` — apt/pip package lists for security mode
-- `agents/claude-code/wrapper.sh` generalised — injects `modes/{TRIQUETRA_MODE}/context.md` into `/settings/.claude/CLAUDE.md` at container start (Claude Code reads this automatically as user-level CLAUDE.md); replaces hardcoded security-mode detection
+- `agents/claude-code/wrapper.sh` generalised — injects `modes/{TRIGON_MODE}/context.md` into `/settings/.claude/CLAUDE.md` at container start (Claude Code reads this automatically as user-level CLAUDE.md); replaces hardcoded security-mode detection
 - `modes/security/context.md` cleaned up — now contains only the raw prompt text for injection
-- `TRIQUETRA_IMAGE` set to `{agent}-{mode}:latest` in `triquetra-up.sh`; `compose/security.yml` image override removed
+- `TRIGON_IMAGE` set to `{agent}-{mode}:latest` in `trigon-up.sh`; `compose/security.yml` image override removed
 - `--playwright-headless` implemented: writes `mcp-config-headless.json` (headless flag, internal Chromium), generates compose fragment with `ipc: host` + `SYS_PTRACE`; restricted to dev mode; incompatible with `--playwright`
 - Playwright (headless) is installed in the dev image via `playwright install --with-deps chromium`; browsers at `/usr/local/playwright-browsers`
 
@@ -63,7 +63,7 @@ Repo bootstrapped at `/home/bergurth/projects/Triquetra` (= `/app_4` inside cont
 
 ### M1 — DONE (committed, pre-testing)
 
-`triquetra-up.sh` with `--provider` flag fully implemented.
+`trigon-up.sh` with `--provider` flag fully implemented.
 
 **Key implementation details:**
 - `--provider` parsing handles all forms: `deepseek:smart`, `openrouter/org/model`,
@@ -85,18 +85,18 @@ Repo bootstrapped at `/home/bergurth/projects/Triquetra` (= `/app_4` inside cont
 - `--playwright-headless` parsed but stubbed with warning (M2) — headless Chromium inside the
   container; no `network_mode: host` needed, compatible with all providers including tier-2
 - `--air-gap` implemented (M3): `internal: true` Docker network isolates agent; LiteLLM retains host access; Claude Code itself requires `api.anthropic.com` for auth so full air-gap breaks it — true offline use requires OpenCode (M5)
-- Settings dir renamed: `~/.triquetra-settings-<name>` (was `~/.claude-settings-<name>`)
+- Settings dir renamed: `~/.trigon-settings-<name>` (was `~/.claude-settings-<name>`)
 - `COMPOSE_CMD` is now a bash array — no more word-split issue with `docker compose`
 
 **New/updated compose files:**
-- `compose/base.yml`: service renamed `triquetra`; image `${TRIQUETRA_IMAGE:-claude-code-env}`;
+- `compose/base.yml`: service renamed `trigon`; image `${TRIGON_IMAGE:-claude-code-env}`;
   `network_mode: bridge` removed (default compose network handles NAT + inter-container DNS)
 - `compose/security.yml`: security mode fragment (image override, GOPATH/PATH, results/wordlists
   volumes, NET_RAW + NET_ADMIN caps)
 - `compose/litellm.yml`: reference template (script generates equivalent at runtime)
 
 **Gate status:** M1 implementation complete. **Not yet tested end-to-end.**
-Next action: run `./triquetra-up.sh ~/project --provider deepseek --api --prompt-file scout.md`
+Next action: run `./trigon-up.sh ~/project --provider deepseek --api --prompt-file scout.md`
 with `DEEPSEEK_API_KEY` set to verify the M1 gate.
 
 ### What still exists and works unchanged
@@ -126,7 +126,7 @@ with `DEEPSEEK_API_KEY` set to verify the M1 gate.
    providers. Optional (only starts when needed). Config is **generated at runtime**
    into a temp file — not maintained as a static YAML in the repo.
 
-6. **Single repo** — `/home/bergurth/projects/Triquetra` is the Triquetra repo.
+6. **Single repo** — `/home/bergurth/projects/Trigon` is the Trigon repo.
    The original plan to clone `/app` was superseded; the repo was started fresh
    (design docs existed first). `/app` git history lives at
    `github.com/Bergurth/claude-in-container` and can be referenced there.
@@ -143,7 +143,7 @@ with `DEEPSEEK_API_KEY` set to verify the M1 gate.
    - Parsing: `openrouter/`, `bedrock/`, `openai/` split on first `/`; all others split on first `:`
 
 10. **VibePod awareness**: VibePod (open-source, March 2026) is the closest existing tool —
-    runs multiple agents in Docker with zero config. Triquetra's differentiation:
+    runs multiple agents in Docker with zero config. Trigon's differentiation:
     provider switching *within* Claude Code (the ANTHROPIC_BASE_URL trick), security
     mode as a domain toolset, and personal pipeline integration. OpenCode natively
     supports 75+ providers, making it the long-term answer for the "any provider" use
@@ -161,7 +161,7 @@ Current status summary:
 | Milestone | Title | Status |
 |-----------|-------|--------|
 | M0 | Repository bootstrap | ✅ Done |
-| M1 | `triquetra-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) |
+| M1 | `trigon-up.sh` with `--provider` | ✅ Done (tested 2026-06-06) |
 | M2 | Mode-aware build + `--playwright-headless` | ✅ Done (pre-testing) |
 | M3 | `--air-gap` network isolation | ✅ Done (Claude Code limitation noted) |
 | M4 | Data mode (LaTeX) | ⏸ Deferred |
@@ -183,7 +183,7 @@ in progress. Key decisions made:
   and `XDG_DATA_HOME=/settings/data`; OpenCode uses these automatically — no extra
   volume mounts needed
 - **Provider config:** `agents/opencode/wrapper.sh` reads `TRIGON_PROVIDER_TYPE`
-  (injected by `triquetra-up.sh`) and generates `$XDG_CONFIG_HOME/opencode/config.json`
+  (injected by `trigon-up.sh`) and generates `$XDG_CONFIG_HOME/opencode/config.json`
   at container startup for non-direct providers; pure Anthropic needs no config file
 - **Pipeline mode:** wrapper handles via `PROMPT_FILE` env var →
   `opencode --no-tui --message "$(cat $PROMPT_FILE)"`; CMD is never overridden
@@ -197,7 +197,7 @@ in progress. Key decisions made:
 
 **Files changed:**
 - `build.sh` — opencode valid agent; `--opencode-version` flag
-- `triquetra-up.sh` — agent validation unblocked; TRIGON_* env injection;
+- `trigon-up.sh` — agent validation unblocked; TRIGON_* env injection;
   auth guard scoped to claude-code; launch block branches on agent
 
 ---
@@ -210,7 +210,7 @@ in progress. Key decisions made:
 - **Build strategy** — one fat image per agent+mode vs. layered base images
   (current plan: one image per combination; revisit if CI caching becomes painful)
 - **GitHub remote** — repo not yet pushed; `gh repo create` needed before M6
-- **Rename Triquetra → Trigon** — deferred to M6 (scripts, image tags, settings dir)
+- **Rename Trigon → Trigon** — deferred to M6 (scripts, image tags, settings dir)
 
 ---
 
@@ -218,22 +218,22 @@ in progress. Key decisions made:
 
 Read this file, then check git log to see what's landed since this was written:
 ```bash
-git -C /home/bergurth/projects/Triquetra log --oneline
+git -C /home/bergurth/projects/Trigon log --oneline
 ```
 
 Key files to read depending on the task:
-- `triquetra-up.sh` — the main script (M1 implemented here)
+- `trigon-up.sh` — the main script (M1 implemented here)
 - `providers/schema.md` — provider YAML spec
 - `compose/base.yml`, `compose/security.yml`, `compose/litellm.yml` — compose fragments
-- `docs/triquetra-architecture.md` — internal design
+- `docs/trigon-architecture.md` — internal design
 
 ---
 
 ## Quick reference: file map
 
 ```
-/home/bergurth/projects/Triquetra/     (= /app_4 inside the container)
-  triquetra-up.sh                      main entrypoint — M1 IMPLEMENTED
+/home/bergurth/projects/Trigon/     (= /app_4 inside the container)
+  trigon-up.sh                      main entrypoint — M1 IMPLEMENTED
   README.md                            project overview + quick-start
 
   agents/claude-code/
@@ -247,7 +247,7 @@ Key files to read depending on the task:
     data/.gitkeep                      placeholder (M4)
 
   compose/
-    base.yml                           base service definition (service: triquetra)
+    base.yml                           base service definition (service: trigon)
     security.yml                       security mode fragment
     litellm.yml                        litellm sidecar reference template
     mcp-config-template.json           Playwright MCP config
@@ -264,12 +264,12 @@ Key files to read depending on the task:
 
   docs/
     session-start.md                   this file
-    triquetra-architecture.md          internal design
+    trigon-architecture.md          internal design
     providers.md / agents.md / modes.md / pipelines.md
-    triquetra-feasibility.md / v3_triquetra_use_case_analysis.md
+    trigon-feasibility.md / v3_trigon_use_case_analysis.md
 
 /app/                                  original claude-in-container (still works)
-  claude-up.sh                         reference — Triquetra generalises this
+  claude-up.sh                         reference — Trigon generalises this
   Dockerfile / Dockerfile.security     reference images
   compose.yml / compose.security.yml   reference compose files
 ```

@@ -16,7 +16,7 @@ At build time, each mode contributes:
 
 At runtime, the agent `wrapper.sh` reads the mode's `context.md` and injects
 it into the agent's startup context. For Claude Code this means writing a
-`.triquetra-context` file in the working directory that the agent reads as
+`.trigon-context` file in the working directory that the agent reads as
 additional project context.
 
 ```
@@ -52,8 +52,8 @@ General software development. The baseline mode inherited from `claude-in-contai
 **Context injected:** none (dev mode is the neutral baseline)
 
 ```bash
-./triquetra-up.sh ~/django-app
-./triquetra-up.sh ~/django-app --mode dev   # explicit
+./trigon-up.sh ~/django-app
+./trigon-up.sh ~/django-app --mode dev   # explicit
 ```
 
 ---
@@ -94,9 +94,9 @@ the `claude-in-container` `--security` mode.
 `modes/security/context.md`).
 
 ```bash
-./triquetra-up.sh ~/target-app --mode security
-./triquetra-up.sh ~/target-app --mode security --provider deepseek
-./triquetra-up.sh ~/target-app --mode security --prompt-file ./prompts/recon.md
+./trigon-up.sh ~/target-app --mode security
+./trigon-up.sh ~/target-app --mode security --provider deepseek
+./trigon-up.sh ~/target-app --mode security --prompt-file ./prompts/recon.md
 ```
 
 **Note:** Always ensure proper authorisation before using security tools against
@@ -120,8 +120,8 @@ Data science, analytics, and ML engineering. Not yet implemented.
 **Context injected:** data tool inventory and common workflow patterns.
 
 ```bash
-./triquetra-up.sh ~/analytics-project --mode data
-./triquetra-up.sh ~/analytics-project --mode data --provider ollama:qwen2.5
+./trigon-up.sh ~/analytics-project --mode data
+./trigon-up.sh ~/analytics-project --mode data --provider ollama:qwen2.5
 ```
 
 ---
@@ -157,7 +157,7 @@ Some combinations are particularly useful:
    COPY modes/${MODE}/packages.txt /tmp/
    RUN apt-get install -y $(cat /tmp/packages.txt)
    ```
-7. Update `triquetra-up.sh` to pass `--build-arg MODE=mymode`
+7. Update `trigon-up.sh` to pass `--build-arg MODE=mymode`
 8. Document in this file
 
 ---
@@ -167,9 +167,9 @@ Some combinations are particularly useful:
 Each agent+mode combination produces a distinct Docker image. Images are tagged:
 
 ```
-triquetra-claude-code-dev
-triquetra-claude-code-security
-triquetra-opencode-dev
+trigon-claude-code-dev
+trigon-claude-code-security
+trigon-opencode-dev
 ```
 
 The `build.sh` script builds all combinations:
