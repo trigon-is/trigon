@@ -179,21 +179,19 @@ After M1–M4 stable.
   README accuracy fixes, planning docs → `docs/internal/`, `trigon-up.sh --help`,
   Playwright `.mcp.json` restored on exit, VPN leftover removed from claude-code wrapper,
   `triquetra-up.sh` symlink removed
-- `README.md` public-audience framing rewrite (gaps identified 2026-06-14):
-  - Prerequisites section (Docker + Compose v2, python3 on host, bash, Linux)
-  - Authentication story: OAuth login inside container (persisted via
-    `~/.trigon-settings-<name>`) vs `--api` key injection — first-run experience
-  - Agents section: OpenCode coverage incl. limitations (dev mode only,
-    `--yolo`/`--max-budget` no effect)
-  - Roadmap/status section: v0.x framing, what's done (M0–M3, M5), what's
-    coming (data mode, `--audit`)
-  - Consolidate `docs/README.md` into a pure docs index — it currently
-    duplicates the root README and has drifted (missing `--playwright-headless`,
-    `--name` in its usage block); move unique content (three-axes table) to root
-  - Nice-to-haves: badges (license, CI), provider-switching ASCII diagram,
-    consider moving the remote-Ollama SSH-tunnel section to `docs/providers.md`,
-    demo recording
+- ✅ `README.md` public-audience framing rewrite — done 2026-06-14:
+  - Added Prerequisites, Authentication, Agents, and Project-status sections
+  - Three-axes table moved to root; `docs/README.md` reduced to a pure docs index
+  - Remote-Ollama SSH-tunnel section relocated to `docs/providers.md`
+  - License + status badges added
+  - Fixed stale `ollama.yml` example in `docs/providers.md`
+    (`litellm_host`/`litellm_port` → `litellm_api_base`/`litellm_model_prefix`)
+  - Remaining nice-to-haves (deferred): CI badge once Actions exists,
+    provider-switching ASCII diagram, demo recording
 - `CONTRIBUTING.md`
+- Doc-accuracy sweep still outstanding: `docs/agents.md` references nonexistent
+  image names (`trigon-claude-code` → actual `claude-code-dev:latest`) and an
+  `opencode.config.json` path that's really `config.json`; verify before publication
 - GitHub remote: push to `github.com/trigon-is/trigon`
 - GitHub Actions CI (build + smoke test)
 - Tag `v0.1.0`

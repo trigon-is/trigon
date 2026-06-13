@@ -1,26 +1,57 @@
 # Trigon
 
+![License](https://img.shields.io/badge/license-Apache--2.0-blue) ![Status](https://img.shields.io/badge/status-v0.x%20pre--release-orange)
+
 A provider-agnostic, agent-flexible Docker container harness for LLM-assisted development and automation.
 
-```
+Each invocation is one self-contained unit — **agent + provider + mode → one container run → output / exit**. There is no internal orchestration; multi-step pipelines are built externally in shell, Makefiles, or CI.
+
+```bash
 ./trigon-up.sh [PROJECT_PATH ...] [FLAGS]
 ```
 
-Each invocation is one self-contained unit: **agent + provider + mode → one container run → output / exit**.  
-No internal orchestration. Multi-step pipelines are built externally in shell, Makefiles, or CI.
+---
+
+## Why Trigon
+
+Claude Code's CLI honours the `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL` environment variables. Point them at any Anthropic-compatible endpoint and the same agent talks to a different model — no code changes. Trigon builds on that one insight and generalises it along three independent axes:
+
+| Axis | Flag | What it selects | Default |
+|------|------|-----------------|---------|
+| **Provider** | `--provider` | Which LLM backend answers requests | `anthropic` |
+| **Agent** | `--agent` | Which coding agent runs in the container | `claude-code` |
+| **Mode** | `--mode` | Which domain toolset is installed | `dev` |
+
+These compose freely: any provider, with any agent, in any mode. Providers that don't speak the Anthropic format are handled transparently by a LiteLLM sidecar (see [Providers](#providers)).
+
+---
+
+## Prerequisites
+
+- **Docker** with the **Compose v2** plugin (`docker compose`); `docker-compose` v1 also works
+- **bash** 4+
+- **python3** on the host (the provider-YAML parser is embedded Python; no `pip` packages needed)
+- **Linux** — tested on Ubuntu. The `--air-gap` and remote-Ollama networking rely on Linux Docker bridge behaviour; macOS/Windows are untested.
+- An account or API key for whichever provider you use (see [Authentication](#authentication))
 
 ---
 
 ## Quick start
 
 ```bash
-# One-time: build the agent image (see "Building images" below)
+# 1. Build the agent image once (Claude Code, dev mode)
 ./build.sh
 
-# Default: Claude Code, Anthropic, dev mode
+# 2. Launch an interactive session against your project
 ./trigon-up.sh ~/my-project
+```
 
-# DeepSeek for cost-sensitive tasks (uses ANTHROPIC_BASE_URL trick, no proxy)
+On first launch with the default `anthropic` provider, Claude Code prompts you to log in (`/login`). That session is saved (see [Settings persistence](#settings-persistence)), so it's a one-time step per container name.
+
+More examples:
+
+```bash
+# DeepSeek for cost-sensitive tasks (Anthropic-compatible, no proxy)
 ./trigon-up.sh ~/my-project --provider deepseek --api
 
 # Local model, air-gapped (LiteLLM sidecar translates to Ollama)
@@ -33,61 +64,72 @@ No internal orchestration. Multi-step pipelines are built externally in shell, M
 ./trigon-up.sh ~/my-project --prompt-file scout.md --provider deepseek --api
 ```
 
+Run `./trigon-up.sh --help` for the full flag reference.
+
 ---
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--provider NAME` | `anthropic` | Model provider. See [Provider reference](docs/providers.md) |
-| `--agent NAME` | `claude-code` | Agent frontend. See [Agent reference](docs/agents.md) |
-| `--mode NAME` | `dev` | Domain toolset (`dev`, `security`, `data`). See [Modes](docs/modes.md) |
-| `--name NAME` | `trigon-<agent>` | Container name (also determines settings persistence directory) |
-| `--api` | off | Inject API key for the selected provider (`~/.anthropic_api_key` or `api_key_env` from provider YAML) |
-| `--yolo` | off | Skip agent permission prompts (`--dangerously-skip-permissions`) |
-| `--root` | off | Run container as root |
-| `--playwright` | off | Enable Playwright MCP browser automation (connects to host Chrome on port 9222; host networking) |
-| `--playwright-headless` | off | Playwright MCP with headless Chromium inside the container — no host Chrome needed, works with all providers |
-| `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`). LiteLLM sidecar retains host access for model calls. |
-| `--prompt-file PATH` | — | Non-interactive: pass prompt content and exit on completion |
-| `--max-budget USD` | — | Cap API spend for pipeline runs |
+| `--provider NAME` | `anthropic` | Model provider. See [Providers](#providers) and [docs/providers.md](docs/providers.md) |
+| `--agent NAME` | `claude-code` | Agent frontend (`claude-code`, `opencode`). See [Agents](#agents) |
+| `--mode NAME` | `dev` | Domain toolset (`dev`, `security`). See [Modes](#modes) |
+| `--name NAME` | `trigon-<agent>` | Container name; also keys the settings persistence directory |
+| `--api` | off | Inject the provider's API key (`~/.anthropic_api_key` or `~/.{provider}_api_key`, or the env var named in the provider YAML) |
+| `--yolo` | off | Skip agent permission prompts (`--dangerously-skip-permissions`; claude-code only) |
+| `--root` | off | Run the container as root |
+| `--playwright` | off | Playwright MCP via host Chrome on `localhost:9222` (host networking) |
+| `--playwright-headless` | off | Playwright MCP with headless Chromium inside the container — no host Chrome, works with all providers |
+| `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`); the LiteLLM sidecar retains host access for model calls. |
+| `--prompt-file PATH` | — | Non-interactive: pass prompt content, run, and exit on completion |
+| `--max-budget USD` | — | Cap API spend for pipeline runs (claude-code only) |
 | `--security` | — | Alias for `--mode security` (backward compat) |
 | `-h`, `--help` | — | Show usage and exit |
 
-Multiple project directories can be passed as positional arguments (up to 5). First mounts to `/app`, subsequent to `/app_2`…`/app_5`.
+Multiple project directories can be passed as positional arguments (up to 5). The first mounts to `/app`, subsequent ones to `/app_2`…`/app_5`.
+
+---
+
+## Authentication
+
+How the agent authenticates depends on the provider.
+
+**Anthropic (default) — two options:**
+
+- **Subscription (OAuth):** launch normally and run `/login` inside Claude Code. The OAuth token is stored in the settings directory and reused on every later run with the same `--name`.
+- **API key:** pass `--api` to inject `ANTHROPIC_API_KEY` from your environment, or from `~/.anthropic_api_key` if the env var is unset. Billed per token.
+
+**Third-party providers** always require an API key. Either export the provider's env var (e.g. `export DEEPSEEK_API_KEY=...`) or place it in `~/.{provider}_api_key` and pass `--api`. The exact env var name is declared in each `providers/*.yml`. Local providers (`ollama:*`) need no key.
+
+> **Note:** don't mix an OAuth login and an injected API key in the same settings directory — Claude Code treats that as an auth conflict. Use a fresh `--name` to keep API-key runs separate from your logged-in session. `trigon-up.sh` warns when it detects this.
 
 ---
 
 ## Building images
 
 ```bash
-# Build dev image (default)
-./build.sh
-
-# Build security image
-./build.sh --mode security
-
-# Build both
-./build.sh --mode dev && ./build.sh --mode security
+./build.sh                                   # claude-code, dev mode (default)
+./build.sh --mode security                   # claude-code, security mode
+./build.sh --agent opencode                  # opencode, dev mode
 ```
+
+Each `(agent, mode)` pair produces its own tagged image, e.g. `claude-code-dev:latest`, `claude-code-security:latest`.
 
 The Claude Code CLI version defaults to npm `latest`. Pin a specific version if `latest` introduces a regression mid-project:
 
 ```bash
 ./build.sh --claude-version 2.1.144
+./build.sh --agent opencode --opencode-version 0.x.y
 ```
-
-OpenCode images are built the same way (`./build.sh --agent opencode`, optionally `--opencode-version VERSION`).
 
 ---
 
-## Provider switching
+## Providers
 
-Trigon resolves providers in two tiers:
+Trigon resolves providers in two tiers.
 
-**Tier 1 — direct (no proxy, zero overhead)**  
-Providers that speak the Anthropic Messages API natively.  
-Claude Code's `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL` env vars are set; no extra containers.
+**Tier 1 — direct (no proxy, zero overhead).** Providers that speak the Anthropic Messages API natively. `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL` are set; no extra containers.
 
 | Provider | Example |
 |----------|---------|
@@ -95,64 +137,27 @@ Claude Code's `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL` env vars are set; no ex
 | `deepseek` | `--provider deepseek` |
 | `openrouter/MODEL` | `--provider openrouter/anthropic/claude-sonnet-4-5` |
 
-**Tier 2 — LiteLLM sidecar**  
-Providers that need format translation. A LiteLLM container starts alongside the agent.
+**Tier 2 — LiteLLM sidecar.** Providers that need format translation. A LiteLLM container starts alongside the agent and exposes an Anthropic-compatible endpoint; the agent sees no difference.
 
 | Provider | Example |
 |----------|---------|
 | `ollama:MODEL` | `--provider ollama:qwen2.5` |
 | `openai/MODEL` | `--provider openai/gpt-4o` |
 | `bedrock/MODEL` | `--provider bedrock/anthropic.claude-3-5-sonnet` |
+| `litellm:CONFIG` | `--provider litellm:./my-config.yaml` (escape hatch) |
 
-Provider config lives in `providers/*.yml`. See [Provider schema](docs/providers.md) and [schema spec](providers/schema.md).
+Provider config lives in `providers/*.yml`. For the full per-provider reference, model aliases (`fast`/`smart`/`reason`), privacy notes, **running Ollama on a remote machine over an SSH tunnel**, and how to add a provider, see **[docs/providers.md](docs/providers.md)** and the [schema spec](providers/schema.md).
 
 ---
 
-## Remote Ollama via SSH tunnel
+## Agents
 
-If Ollama runs on a remote machine (e.g. a lab GPU server or an NVIDIA DGX Spark), you can reach it without any server-side changes using an SSH port forward.
+The `--agent` flag selects the coding agent that runs in the container. The provider is separate — it's the LLM the agent queries.
 
-**1. Open the tunnel on your host — keep this terminal open:**
-```bash
-# Bind to 0.0.0.0, not 127.0.0.1 — Docker containers reach the host via the bridge IP,
-# not loopback, so loopback-only tunnels are invisible to containers.
-ssh -N -L 0.0.0.0:11435:localhost:11434 user@remote-host
-```
+- **`claude-code`** (default) — Anthropic's Claude Code CLI. Mature tool-use loop, `CLAUDE.md` project context, MCP support, session persistence. Works with every provider tier.
+- **`opencode`** — the open-source [OpenCode](https://opencode.ai) agent, with native multi-provider support. **Current limitations in Trigon:** dev mode only (no `--mode security`); `--yolo` and `--max-budget` have no effect (no equivalent flags).
 
-**2. Allow Docker containers to reach the tunnel port (one-time, Linux only):**
-```bash
-# Docker containers on compose networks arrive on br-XXXX interfaces, not docker0.
-# Without this rule, the bridge traffic is dropped before reaching the tunnel.
-sudo iptables -I INPUT -i br+ -p tcp --dport 11435 -j ACCEPT
-
-# Make it permanent (Ubuntu/Debian):
-sudo apt install iptables-persistent -y && sudo netfilter-persistent save
-```
-
-**3. Create a provider YAML** (see `providers/spark-qwen3.yml` as a reference):
-```yaml
-type: litellm-proxy
-litellm_model_prefix: "ollama/"
-litellm_api_base: "http://host.docker.internal:11435"
-default_model: qwen3:32b
-api_key_env: ""
-requires: []
-supports_thinking: false
-notes: "Requires SSH tunnel: ssh -N -L 0.0.0.0:11435:localhost:11434 user@remote-host"
-```
-
-**4. Launch:**
-```bash
-./trigon-up.sh ~/my-project --provider my-remote-ollama --api
-```
-
-### Model selection for remote Ollama
-
-Not all models work equally well through the LiteLLM→Ollama translation layer:
-
-- **Prefer models with native thinking support** (`qwen3`, `deepseek-r1`): Claude Code always sends thinking parameters; models that don't understand them will error. Set `supports_thinking: false` in the provider YAML for models that lack it (e.g. older Llama, Mistral, most fine-tunes) — this tells LiteLLM to strip the parameter before forwarding.
-- **`--prompt-file` mode is more reliable than interactive** for local models: bounded, single-shot tasks play to the model's strengths and avoid the multi-tool looping that interactive sessions depend on.
-- **For agentic tool-use**, `qwen3:32b` and `qwen3-coder:30b` have the most stable tool-calling behaviour of currently available Ollama models.
+Both agents support non-interactive `--prompt-file` pipeline mode. See **[docs/agents.md](docs/agents.md)** for the full comparison and how to add an agent.
 
 ---
 
@@ -163,6 +168,33 @@ Not all models work equally well through the LiteLLM→Ollama translation layer:
 | `dev` | Python, Node, git, standard build tools | Software development |
 | `security` | nmap, gobuster, nuclei, ffuf, Go tools | Pentesting, security audits |
 | `data` *(planned — not yet implemented)* | pandas, numpy, LaTeX/xelatex, dbt | Data analysis, report generation |
+
+See **[docs/modes.md](docs/modes.md)** for what each mode installs and how to add one.
+
+---
+
+## Settings persistence
+
+Each named container (`--name`) gets its own settings directory on the host at `~/.trigon-settings-<name>`. It holds Claude Code's OAuth token, conversation history, and configuration, and persists across container runs — which is what makes login a one-time step per name.
+
+---
+
+## Project status
+
+Trigon is **pre-release (v0.x)**. The core `claude-code + anthropic + dev/security` path is the stable reference; everything else layers on without breaking it.
+
+| Milestone | Scope | Status |
+|-----------|-------|--------|
+| M0 | Repository bootstrap | ✅ Done |
+| M1 | `--provider` switching (tier 1 + tier 2) | ✅ Done |
+| M2 | Mode-aware build + `--playwright-headless` | ✅ Done |
+| M3 | `--air-gap` network isolation | ✅ Done |
+| M4 | Data mode (LaTeX) | ⏸ Deferred |
+| M5 | OpenCode agent | ✅ Basic (further testing in progress) |
+| M6 | Publication prep (docs, CI, benchmarks) | 🔲 In progress |
+| M7 | Network audit log (`--audit`) | 🔲 Planned |
+
+Full detail and gate conditions: [docs/v1_milestones_roadmap.md](docs/v1_milestones_roadmap.md).
 
 ---
 
@@ -213,12 +245,6 @@ trigon/
     ├── trigon-architecture.md
     └── internal/            # planning & strategy docs (not user-facing)
 ```
-
----
-
-## Settings persistence
-
-Each named container (`--name`) gets its own settings directory on the host at `~/.trigon-settings-<name>`. This holds Claude Code's OAuth token, conversation history, and configuration — it persists across container restarts.
 
 ---
 

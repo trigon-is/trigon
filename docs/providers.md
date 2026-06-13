@@ -119,6 +119,61 @@ daemon). With `--air-gap`, the agent container has no outbound network access
 
 ---
 
+### Remote Ollama via SSH tunnel
+
+If Ollama runs on a remote machine (e.g. a lab GPU server or an NVIDIA DGX Spark),
+you can reach it without any server-side changes using an SSH port forward.
+
+**1. Open the tunnel on your host — keep this terminal open:**
+```bash
+# Bind to 0.0.0.0, not 127.0.0.1 — Docker containers reach the host via the bridge IP,
+# not loopback, so loopback-only tunnels are invisible to containers.
+ssh -N -L 0.0.0.0:11435:localhost:11434 user@remote-host
+```
+
+**2. Allow Docker containers to reach the tunnel port (one-time, Linux only):**
+```bash
+# Docker containers on compose networks arrive on br-XXXX interfaces, not docker0.
+# Without this rule, the bridge traffic is dropped before reaching the tunnel.
+sudo iptables -I INPUT -i br+ -p tcp --dport 11435 -j ACCEPT
+
+# Make it permanent (Ubuntu/Debian):
+sudo apt install iptables-persistent -y && sudo netfilter-persistent save
+```
+
+**3. Create a provider YAML** (see `providers/spark-qwen3.yml` as a reference):
+```yaml
+type: litellm-proxy
+litellm_model_prefix: "ollama/"
+litellm_api_base: "http://host.docker.internal:11435"
+default_model: qwen3:32b
+api_key_env: ""
+requires: []
+supports_thinking: false
+notes: "Requires SSH tunnel: ssh -N -L 0.0.0.0:11435:localhost:11434 user@remote-host"
+```
+
+**4. Launch:**
+```bash
+./trigon-up.sh ~/my-project --provider my-remote-ollama --api
+```
+
+**Model selection for remote Ollama.** Not all models work equally well through the
+LiteLLM→Ollama translation layer:
+
+- **Prefer models with native thinking support** (`qwen3`, `deepseek-r1`): Claude Code
+  always sends thinking parameters; models that don't understand them will error. Set
+  `supports_thinking: false` in the provider YAML for models that lack it (e.g. older
+  Llama, Mistral, most fine-tunes) — this tells LiteLLM to strip the parameter before
+  forwarding.
+- **`--prompt-file` mode is more reliable than interactive** for local models: bounded,
+  single-shot tasks play to the model's strengths and avoid the multi-tool looping that
+  interactive sessions depend on.
+- **For agentic tool-use**, `qwen3:32b` and `qwen3-coder:30b` have the most stable
+  tool-calling behaviour of currently available Ollama models.
+
+---
+
 ### `openai/MODEL`
 
 **Tier:** 2 (LiteLLM sidecar)  
@@ -186,10 +241,12 @@ api_key_env: DEEPSEEK_API_KEY
 ```yaml
 # providers/ollama.yml
 type: litellm-proxy
-litellm_host: host.docker.internal
-litellm_port: 11434
+litellm_model_prefix: "ollama/"
+litellm_api_base: "http://host.docker.internal:11434"
 default_model: qwen2.5-coder:7b
+api_key_env: ""
 requires: []        # no API key needed
+supports_thinking: false
 notes: |
   Requires Ollama running on host. Pull models with: ollama pull MODEL
 ```
