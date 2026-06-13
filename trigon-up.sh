@@ -183,7 +183,12 @@ else
   PROVIDER_FILE="${PROVIDERS_DIR}/${PROVIDER_NAME}.yml"
   if [[ ! -f "$PROVIDER_FILE" ]]; then
     echo "Error: Unknown provider '${PROVIDER_NAME}'. No file: ${PROVIDER_FILE}" >&2
-    echo "Available: $(ls "${PROVIDERS_DIR}"/*.yml 2>/dev/null | xargs -n1 basename | sed 's/\.yml//' | tr '\n' ' ')" >&2
+    AVAILABLE=""
+    for f in "${PROVIDERS_DIR}"/*.yml; do
+      [[ -e "$f" ]] || continue
+      AVAILABLE+="$(basename "$f" .yml) "
+    done
+    echo "Available: ${AVAILABLE}" >&2
     exit 1
   fi
 
@@ -267,9 +272,14 @@ else
 fi
 
 # ── User/group ────────────────────────────────────────────────────────────────
-[[ $ROOT_MODE -eq 1 ]] \
-  && { export LOCAL_UID=0; export LOCAL_GID=0; } \
-  || { export LOCAL_UID="$(id -u)"; export LOCAL_GID="$(id -g)"; }
+if [[ $ROOT_MODE -eq 1 ]]; then
+  export LOCAL_UID=0
+  export LOCAL_GID=0
+else
+  LOCAL_UID="$(id -u)"
+  LOCAL_GID="$(id -g)"
+  export LOCAL_UID LOCAL_GID
+fi
 
 # ── Settings directory (persisted across runs, keyed by container name) ───────
 CLAUDE_SETTINGS_DIR="${CLAUDE_SETTINGS_DIR:-$HOME/.trigon-settings${NAME:+-$NAME}}"
