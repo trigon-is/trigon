@@ -33,7 +33,19 @@ var injection in the launch script.
 
 ---
 
-## Current state (as of 2026-06-10)
+## Current state (as of 2026-06-13)
+
+### Recent changes (2026-06-13)
+
+- **Project renamed Triquetra → Trigon** (complete). Entrypoint is now `trigon-up.sh`
+  (a `triquetra-up.sh` symlink remains for transition). Renamed across the board:
+  compose service `trigon`, env vars `TRIGON_MODE` / `TRIGON_IMAGE` / `TRIGON_PROVIDER_*`,
+  settings dir `~/.trigon-settings-<name>`, wrapper binary `trigon-wrapper`, and the four
+  triquetra-named doc files. **Images must be rebuilt** to bake in `TRIGON_MODE`.
+- **Claude Code version un-pegged** in `build.sh` / `agents/claude-code/Dockerfile`:
+  defaults to npm `latest`; pin with `build.sh --claude-version X.Y.Z`.
+- **AI-DLC workflow rules vendored** under `docs/aidlc/` (from `awslabs/aidlc-workflows`)
+  as reference for larger features; `docs/aidlc/aws-aidlc-rules/core-workflow.md` is the entrypoint.
 
 ### M0 — DONE (committed)
 
@@ -210,7 +222,6 @@ in progress. Key decisions made:
 - **Build strategy** — one fat image per agent+mode vs. layered base images
   (current plan: one image per combination; revisit if CI caching becomes painful)
 - **GitHub remote** — repo not yet pushed; `gh repo create` needed before M6
-- **Rename Trigon → Trigon** — deferred to M6 (scripts, image tags, settings dir)
 
 ---
 

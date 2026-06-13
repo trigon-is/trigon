@@ -1,6 +1,6 @@
 # Trigon v0.1 — Milestones Roadmap
 
-Last updated: 2026-06-06
+Last updated: 2026-06-13
 
 ---
 
@@ -174,7 +174,7 @@ hardcoded Anthropic dependency and is the correct long-term path for this use ca
 After M1–M4 stable.
 
 **Scope:**
-- Rename project Trigon → Trigon throughout (scripts, docs, image tags, settings dir)
+- ✅ Rename project Triquetra → Trigon throughout (scripts, docs, env vars, settings dir, wrapper binary, service name) — done 2026-06-12; requires image rebuild to pick up `TRIGON_MODE`
 - `README.md` roadmap section + polished quick-start (public audience framing)
 - `CONTRIBUTING.md`, `LICENSE` (Apache-2.0 — final licence decision to be confirmed at publication)
 - GitHub remote: push to `github.com/trigon-is/trigon`
