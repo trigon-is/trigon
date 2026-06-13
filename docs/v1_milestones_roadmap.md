@@ -179,7 +179,20 @@ After M1–M4 stable.
   README accuracy fixes, planning docs → `docs/internal/`, `trigon-up.sh --help`,
   Playwright `.mcp.json` restored on exit, VPN leftover removed from claude-code wrapper,
   `triquetra-up.sh` symlink removed
-- `README.md` roadmap section + polished quick-start (public audience framing)
+- `README.md` public-audience framing rewrite (gaps identified 2026-06-14):
+  - Prerequisites section (Docker + Compose v2, python3 on host, bash, Linux)
+  - Authentication story: OAuth login inside container (persisted via
+    `~/.trigon-settings-<name>`) vs `--api` key injection — first-run experience
+  - Agents section: OpenCode coverage incl. limitations (dev mode only,
+    `--yolo`/`--max-budget` no effect)
+  - Roadmap/status section: v0.x framing, what's done (M0–M3, M5), what's
+    coming (data mode, `--audit`)
+  - Consolidate `docs/README.md` into a pure docs index — it currently
+    duplicates the root README and has drifted (missing `--playwright-headless`,
+    `--name` in its usage block); move unique content (three-axes table) to root
+  - Nice-to-haves: badges (license, CI), provider-switching ASCII diagram,
+    consider moving the remote-Ollama SSH-tunnel section to `docs/providers.md`,
+    demo recording
 - `CONTRIBUTING.md`
 - GitHub remote: push to `github.com/trigon-is/trigon`
 - GitHub Actions CI (build + smoke test)

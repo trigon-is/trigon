@@ -14,6 +14,9 @@ No internal orchestration. Multi-step pipelines are built externally in shell, M
 ## Quick start
 
 ```bash
+# One-time: build the agent image (see "Building images" below)
+./build.sh
+
 # Default: Claude Code, Anthropic, dev mode
 ./trigon-up.sh ~/my-project
 
@@ -48,6 +51,8 @@ No internal orchestration. Multi-step pipelines are built externally in shell, M
 | `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`). LiteLLM sidecar retains host access for model calls. |
 | `--prompt-file PATH` | — | Non-interactive: pass prompt content and exit on completion |
 | `--max-budget USD` | — | Cap API spend for pipeline runs |
+| `--security` | — | Alias for `--mode security` (backward compat) |
+| `-h`, `--help` | — | Show usage and exit |
 
 Multiple project directories can be passed as positional arguments (up to 5). First mounts to `/app`, subsequent to `/app_2`…`/app_5`.
 
@@ -157,7 +162,7 @@ Not all models work equally well through the LiteLLM→Ollama translation layer:
 |------|-------|---------|
 | `dev` | Python, Node, git, standard build tools | Software development |
 | `security` | nmap, gobuster, nuclei, ffuf, Go tools | Pentesting, security audits |
-| `data` | pandas, numpy, LaTeX/xelatex, dbt | Data analysis, report generation |
+| `data` *(planned — not yet implemented)* | pandas, numpy, LaTeX/xelatex, dbt | Data analysis, report generation |
 
 ---
 
