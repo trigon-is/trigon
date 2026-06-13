@@ -43,7 +43,8 @@ No internal orchestration. Multi-step pipelines are built externally in shell, M
 | `--api` | off | Inject API key for the selected provider (`~/.anthropic_api_key` or `api_key_env` from provider YAML) |
 | `--yolo` | off | Skip agent permission prompts (`--dangerously-skip-permissions`) |
 | `--root` | off | Run container as root |
-| `--playwright` | off | Enable Playwright MCP browser automation (connects to host Chrome on port 9222) |
+| `--playwright` | off | Enable Playwright MCP browser automation (connects to host Chrome on port 9222; host networking) |
+| `--playwright-headless` | off | Playwright MCP with headless Chromium inside the container — no host Chrome needed, works with all providers |
 | `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`). LiteLLM sidecar retains host access for model calls. |
 | `--prompt-file PATH` | — | Non-interactive: pass prompt content and exit on completion |
 | `--max-budget USD` | — | Cap API spend for pipeline runs |
@@ -65,17 +66,13 @@ Multiple project directories can be passed as positional arguments (up to 5). Fi
 ./build.sh --mode dev && ./build.sh --mode security
 ```
 
-The Claude Code CLI version is **pinned** in the build (default: `2.1.144`). To build with a different version:
+The Claude Code CLI version defaults to npm `latest`. Pin a specific version if `latest` introduces a regression mid-project:
 
 ```bash
-# Pin to a specific version
-./build.sh --claude-version 2.1.200
-
-# Build with latest (unpinned — may introduce regressions)
-./build.sh --claude-version latest
+./build.sh --claude-version 2.1.144
 ```
 
-The pin exists because `latest` can introduce breaking changes mid-project. To advance the pin, build with the target version, test, then update the default in `build.sh` and `agents/claude-code/Dockerfile`.
+OpenCode images are built the same way (`./build.sh --agent opencode`, optionally `--opencode-version VERSION`).
 
 ---
 
@@ -168,20 +165,22 @@ Not all models work equally well through the LiteLLM→Ollama translation layer:
 
 ```
 trigon/
-├── trigon-up.sh          # main entrypoint
+├── trigon-up.sh             # main entrypoint
 ├── build.sh                 # build agent images
 │
 ├── agents/
-│   └── claude-code/
-│       ├── Dockerfile       # dev mode image
-│       ├── Dockerfile.security
-│       └── wrapper.sh       # mode-aware entrypoint
+│   ├── claude-code/
+│   │   ├── Dockerfile       # multi-stage: base → mode-{dev|security} → final
+│   │   └── wrapper.sh       # mode-context-injecting entrypoint
+│   └── opencode/
+│       ├── Dockerfile
+│       ├── wrapper.sh       # provider-config-generating entrypoint
+│       └── provider-map.yml
 │
-├── modes/
-│   ├── dev/                 # dev toolset (packages, context)
-│   ├── security/
-│   │   └── context.md       # security tools context prompt
-│   └── data/
+├── modes/                   # per-mode package lists + context prompts
+│   ├── dev/                 # packages.txt, requirements.txt
+│   ├── security/            # + context.md (security tools prompt)
+│   └── data/                # placeholder (planned)
 │
 ├── providers/               # provider YAML configs
 │   ├── schema.md
@@ -194,17 +193,20 @@ trigon/
 │   └── custom-example.yml
 │
 ├── compose/
-│   ├── base.yml             # shared service definition
-│   ├── litellm.yml          # LiteLLM sidecar fragment (tier-2 providers)
-│   ├── playwright.yml       # browser MCP fragment
-│   └── air-gap.yml          # air-gap network fragment (generated at runtime)
+│   ├── base.yml                  # shared service definition
+│   ├── security.yml              # security mode fragment
+│   ├── litellm.yml               # LiteLLM sidecar reference template
+│   ├── mcp-config-template.json  # Playwright MCP (host Chrome)
+│   └── mcp-config-headless.json  # Playwright MCP (in-container Chromium)
+│   # litellm / playwright / air-gap fragments are generated at runtime
 │
 └── docs/
     ├── providers.md
     ├── agents.md
     ├── modes.md
     ├── pipelines.md
-    └── trigon-architecture.md
+    ├── trigon-architecture.md
+    └── internal/            # planning & strategy docs (not user-facing)
 ```
 
 ---
@@ -223,4 +225,4 @@ Trigon generalises [claude-in-container](https://github.com/Bergurth/claude-in-c
 
 ## License
 
-MIT
+Apache-2.0 — see [LICENSE](LICENSE).

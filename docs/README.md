@@ -151,4 +151,4 @@ drop-in replacement for the default case.
 - [modes.md](modes.md) — domain toolsets, adding new modes
 - [pipelines.md](pipelines.md) — external orchestration patterns and examples
 - [trigon-architecture.md](trigon-architecture.md) — design rationale and internals
-- [trigon-feasibility.md](trigon-feasibility.md) — original feasibility analysis
+- [internal/](internal/) — planning and strategy docs (feasibility analysis, use-case studies)

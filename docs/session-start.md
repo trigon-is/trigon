@@ -38,7 +38,7 @@ var injection in the launch script.
 ### Recent changes (2026-06-13)
 
 - **Project renamed Triquetra → Trigon** (complete). Entrypoint is now `trigon-up.sh`
-  (a `triquetra-up.sh` symlink remains for transition). Renamed across the board:
+  (the transitional `triquetra-up.sh` symlink was removed 2026-06-13). Renamed across the board:
   compose service `trigon`, env vars `TRIGON_MODE` / `TRIGON_IMAGE` / `TRIGON_PROVIDER_*`,
   settings dir `~/.trigon-settings-<name>`, wrapper binary `trigon-wrapper`, and the four
   triquetra-named doc files. **Images must be rebuilt** to bake in `TRIGON_MODE`.
@@ -46,10 +46,16 @@ var injection in the launch script.
   defaults to npm `latest`; pin with `build.sh --claude-version X.Y.Z`.
 - **AI-DLC workflow rules vendored** under `docs/aidlc/` (from `awslabs/aidlc-workflows`)
   as reference for larger features; `docs/aidlc/aws-aidlc-rules/core-workflow.md` is the entrypoint.
+- **M6 pass 1 (pre-push hygiene) done 2026-06-13:** `LICENSE` added (Apache-2.0 — decided,
+  README updated from MIT), `.gitignore` added, README accuracy pass (un-pegged version text,
+  dir structure, `--playwright-headless` in flags table), planning docs moved to `docs/internal/`,
+  `trigon-up.sh` gained `--help`/usage, Playwright `.mcp.json` now restored/removed on exit,
+  VPN leftover removed from `agents/claude-code/wrapper.sh`. Remote target: `github.com/trigon-is/trigon`.
 
 ### M0 — DONE (committed)
 
-Repo bootstrapped at `/home/bergurth/projects/Trigon` (= `/app_4` inside container).
+Repo bootstrapped at `/home/bergurth/projects/Trigon` (mount point inside the
+container varies per session — check the volume list).
 - Skeleton directories created: `agents/claude-code/`, `modes/{dev,security,data}/`, `compose/`, `providers/`
 - Design docs moved to `docs/`
 - Reference implementation files copied from `/app` into correct locations
@@ -221,7 +227,8 @@ in progress. Key decisions made:
 - **M1 gate test** — `--provider deepseek` not yet run against a real JSP scout prompt
 - **Build strategy** — one fat image per agent+mode vs. layered base images
   (current plan: one image per combination; revisit if CI caching becomes painful)
-- **GitHub remote** — repo not yet pushed; `gh repo create` needed before M6
+- **GitHub remote** — pre-push hygiene done (M6 pass 1); push to
+  `github.com/trigon-is/trigon` pending (run `gh repo create` on the host)
 
 ---
 
@@ -243,44 +250,47 @@ Key files to read depending on the task:
 ## Quick reference: file map
 
 ```
-/home/bergurth/projects/Trigon/     (= /app_4 inside the container)
-  trigon-up.sh                      main entrypoint — M1 IMPLEMENTED
-  README.md                            project overview + quick-start
+/home/bergurth/projects/Trigon/       (mount point varies per session)
+  trigon-up.sh                        main entrypoint
+  build.sh                            builds {agent}-{mode}:latest images
+  README.md                           project overview + quick-start
+  LICENSE                             Apache-2.0
+  .gitignore                          runtime artifacts (.mcp.json, security-results/ ...)
 
   agents/claude-code/
-    Dockerfile                         dev image (from /app, M2 will refactor)
-    Dockerfile.security                security image (from /app)
-    wrapper.sh                         mode context injection (M2 will generalise)
+    Dockerfile                        multi-stage: base → mode-{dev|security} → final
+    wrapper.sh                        mode context injection into ~/.claude/CLAUDE.md
+  agents/opencode/
+    Dockerfile / wrapper.sh           M5 — provider config generated at startup
+    provider-map.yml
 
   modes/
-    dev/.gitkeep                       placeholder (M2)
-    security/context.md               security tools prompt (from /app)
-    data/.gitkeep                      placeholder (M4)
+    dev/packages.txt + requirements.txt
+    security/context.md + packages.txt + requirements.txt
+    data/.gitkeep                     placeholder (M4, deferred)
 
   compose/
-    base.yml                           base service definition (service: trigon)
-    security.yml                       security mode fragment
-    litellm.yml                        litellm sidecar reference template
-    mcp-config-template.json           Playwright MCP config
+    base.yml                          base service definition (service: trigon)
+    security.yml                      security mode fragment
+    litellm.yml                       litellm sidecar reference template
+    mcp-config-template.json          Playwright MCP (host Chrome)
+    mcp-config-headless.json          Playwright MCP (in-container Chromium)
 
   providers/
-    schema.md                          canonical field reference
-    anthropic.yml                      direct (no redirect)
-    deepseek.yml                       anthropic-compat (tier 1) ← M1 primary target
-    openrouter.yml                     anthropic-compat (tier 1)
-    ollama.yml                         litellm-proxy (tier 2, local)
-    openai.yml                         litellm-proxy (tier 2)
-    bedrock.yml                        litellm-proxy (tier 2, AWS)
-    custom-example.yml                 template for user-defined providers
+    schema.md                         canonical field reference
+    anthropic.yml                     direct (no redirect)
+    deepseek.yml                      anthropic-compat (tier 1)
+    openrouter.yml                    anthropic-compat (tier 1)
+    ollama.yml                        litellm-proxy (tier 2, local)
+    openai.yml / bedrock.yml          litellm-proxy (tier 2)
+    spark-qwen3.yml / spark-foundationsec.yml   remote Ollama via SSH tunnel
+    custom-example.yml                template for user-defined providers
 
   docs/
-    session-start.md                   this file
-    trigon-architecture.md          internal design
+    session-start.md                  this file
+    v1_milestones_roadmap.md          milestone detail + gates
+    trigon-architecture.md            internal design
     providers.md / agents.md / modes.md / pipelines.md
-    trigon-feasibility.md / v3_trigon_use_case_analysis.md
-
-/app/                                  original claude-in-container (still works)
-  claude-up.sh                         reference — Trigon generalises this
-  Dockerfile / Dockerfile.security     reference images
-  compose.yml / compose.security.yml   reference compose files
+    aidlc/                            vendored AI-DLC workflow rules
+    internal/                         planning & strategy docs (not user-facing)
 ```

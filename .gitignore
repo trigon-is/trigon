@@ -1,0 +1,12 @@
+# Runtime artifacts written by trigon-up.sh into the project root
+.mcp.json
+.mcp.json.backup
+
+# Default output dirs created by --mode security
+security-results/
+wordlists/
+
+# Editor / OS noise
+*.swp
+*.swo
+.DS_Store

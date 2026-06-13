@@ -175,8 +175,12 @@ After M1–M4 stable.
 
 **Scope:**
 - ✅ Rename project Triquetra → Trigon throughout (scripts, docs, env vars, settings dir, wrapper binary, service name) — done 2026-06-12; requires image rebuild to pick up `TRIGON_MODE`
+- ✅ Pre-push hygiene pass — done 2026-06-13: `LICENSE` (Apache-2.0, decided), `.gitignore`,
+  README accuracy fixes, planning docs → `docs/internal/`, `trigon-up.sh --help`,
+  Playwright `.mcp.json` restored on exit, VPN leftover removed from claude-code wrapper,
+  `triquetra-up.sh` symlink removed
 - `README.md` roadmap section + polished quick-start (public audience framing)
-- `CONTRIBUTING.md`, `LICENSE` (Apache-2.0 — final licence decision to be confirmed at publication)
+- `CONTRIBUTING.md`
 - GitHub remote: push to `github.com/trigon-is/trigon`
 - GitHub Actions CI (build + smoke test)
 - Tag `v0.1.0`

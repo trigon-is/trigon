@@ -5,12 +5,60 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROVIDERS_DIR="${SCRIPT_DIR}/providers"
 COMPOSE_DIR="${SCRIPT_DIR}/compose"
 
+usage() {
+  cat <<'USAGE'
+Usage: trigon-up.sh [PROJECT_PATH ...] [FLAGS]
+
+Project paths:
+  One or more directories to mount. First → /app, subsequent → /app_2 ... /app_5.
+  Defaults to the current directory. Maximum 5.
+
+Provider:
+  --provider NAME       anthropic (default), deepseek[:MODEL], openrouter/MODEL,
+                        ollama:MODEL, openai/MODEL, bedrock/MODEL,
+                        litellm:CONFIG_FILE. See providers/*.yml.
+
+Agent:
+  --agent NAME          claude-code (default), opencode
+
+Mode:
+  --mode NAME           dev (default), security
+  --security            Alias for --mode security (backward compat)
+
+Session:
+  --name NAME           Container name; also keys the settings dir
+                        ~/.trigon-settings-<name> (default: trigon-<agent>)
+  --yolo                Skip agent permission prompts (claude-code only)
+  --root                Run container as root
+
+Network / browser:
+  --playwright          Playwright MCP via host Chrome on localhost:9222
+                        (switches container to host networking)
+  --playwright-headless Playwright MCP with headless Chromium inside the container
+  --air-gap             Block outbound internet from the agent container
+                        (requires a local provider, e.g. --provider ollama:MODEL)
+
+API / billing:
+  --api                 Inject API key for the selected provider (env var from
+                        provider YAML, falling back to ~/.{provider}_api_key)
+  --max-budget USD      Cap API spend (pipeline runs, claude-code only)
+
+Pipeline:
+  --prompt-file PATH    Non-interactive: run the prompt, exit on completion
+
+Help:
+  -h, --help            Show this help and exit
+USAGE
+  exit 0
+}
+
 # ── Argument collection ───────────────────────────────────────────────────────
 # Positional args before the first flag are project paths.
 PROJECT_PATHS=()
 FLAGS=()
 for arg in "$@"; do
   case "$arg" in
+    -h|--help) usage ;;
     --*) FLAGS+=("$arg") ;;
     *)   [[ ${#FLAGS[@]} -eq 0 ]] && PROJECT_PATHS+=("$arg") || FLAGS+=("$arg") ;;
   esac
@@ -246,8 +294,20 @@ if [[ "$MODE" == "security" ]]; then
 fi
 
 # ── Temp file registry ────────────────────────────────────────────────────────
+# MCP_CONFIG_WRITTEN: set when a Playwright flag writes .mcp.json into the
+# project root, so we can restore/remove it on exit instead of leaving litter.
 TEMP_FILES=()
-cleanup() { for f in "${TEMP_FILES[@]:-}"; do [[ -f "${f:-}" ]] && rm -f "$f"; done; }
+MCP_CONFIG_WRITTEN=""
+cleanup() {
+  for f in "${TEMP_FILES[@]:-}"; do [[ -f "${f:-}" ]] && rm -f "$f"; done
+  if [[ -n "$MCP_CONFIG_WRITTEN" ]]; then
+    if [[ -f "${MCP_CONFIG_WRITTEN}.backup" ]]; then
+      mv "${MCP_CONFIG_WRITTEN}.backup" "$MCP_CONFIG_WRITTEN"
+    else
+      rm -f "$MCP_CONFIG_WRITTEN"
+    fi
+  fi
+}
 trap cleanup EXIT INT TERM
 
 # ── Tier-2: LiteLLM sidecar ──────────────────────────────────────────────────
@@ -394,6 +454,7 @@ if [[ $PLAYWRIGHT -eq 1 ]]; then
   MCP_CONFIG="${PROJECT_ROOT}/.mcp.json"
   [[ -f "$MCP_CONFIG" ]] && cp "$MCP_CONFIG" "${MCP_CONFIG}.backup"
   cp "${COMPOSE_DIR}/mcp-config-template.json" "$MCP_CONFIG"
+  MCP_CONFIG_WRITTEN="$MCP_CONFIG"
   mkdir -p "$CLAUDE_SETTINGS_DIR/config"
   cp "$MCP_CONFIG" "$CLAUDE_SETTINGS_DIR/config/mcp.json"
   echo "Playwright MCP: config written — connecting to host Chrome on localhost:9222"
@@ -422,6 +483,7 @@ if [[ $PLAYWRIGHT_HEADLESS -eq 1 ]]; then
   MCP_CONFIG="${PROJECT_ROOT}/.mcp.json"
   [[ -f "$MCP_CONFIG" ]] && cp "$MCP_CONFIG" "${MCP_CONFIG}.backup"
   cp "${COMPOSE_DIR}/mcp-config-headless.json" "$MCP_CONFIG"
+  MCP_CONFIG_WRITTEN="$MCP_CONFIG"
   mkdir -p "$CLAUDE_SETTINGS_DIR/config"
   cp "$MCP_CONFIG" "$CLAUDE_SETTINGS_DIR/config/mcp.json"
   echo "Playwright MCP (headless): config written — Chromium runs inside the container"
