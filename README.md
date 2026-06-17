@@ -14,7 +14,13 @@ Each invocation is one self-contained unit — **agent + provider + mode → one
 
 ## Why Trigon
 
-Claude Code's CLI honours the `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL` environment variables. Point them at any Anthropic-compatible endpoint and the same agent talks to a different model — no code changes. Trigon builds on that one insight and generalises it along three independent axes:
+Trigon aims to be a tool for flexible, safe, responsible, and effective AI
+infrastructure and development, for individuals and organizations.
+
+Trigon is an open-source Docker harness that launches AI coding agents — Claude Code,
+OpenCode, and others, sandboxed in isolated containers, and pointed at any LLM backend, featuring custom toolsets and prompts.
+
+When using Claude Code's CLI, Trigon takes advantage of Claude Code honouring the `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL` environment variables. Point them at any Anthropic-compatible endpoint and the same agent talks to a different model — no code changes. Trigon builds on that one insight and generalises it along three independent axes:
 
 | Axis | Flag | What it selects | Default |
 |------|------|-----------------|---------|
