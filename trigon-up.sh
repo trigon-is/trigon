@@ -42,7 +42,10 @@ Network / browser:
                         NOTE: servers mounted under a Starlette/FastMCP sub-path
                         (e.g. mounted at "/mcp") require a TRAILING SLASH on the URL
                         — without it the request can fall through to the parent app.
-                        Merges into the project .mcp.json (restored on exit).
+                        Merges into the project .mcp.json (restored on exit). May be
+                        combined with --playwright/--playwright-headless (servers are
+                        merged). Under --playwright (host networking) reach the host as
+                        127.0.0.1, not host.docker.internal.
   --mcp-key VALUE       Bearer token for --mcp servers; sent as
                         "Authorization: Bearer VALUE". Passed via env so the secret
                         is not written into .mcp.json.
@@ -536,25 +539,32 @@ COMPOSE_EOF
 fi
 
 # ── --mcp: attach external HTTP MCP server(s) ────────────────────────────────
-# Merges http MCP servers into the project .mcp.json (which mounts to /app and is
-# read by the agent as project-scoped MCP config), and adds a host-gateway route so a
-# server running on the host is reachable from the bridge-isolated container at
-# host.docker.internal — the same mechanism the litellm sidecar uses to reach host
-# Ollama. The Bearer key, if given, is injected via env (TRIGON_MCP_KEY) and referenced
-# by ${TRIGON_MCP_KEY} expansion in the header, so the secret never lands in the file.
+# Merges http MCP servers into the project .mcp.json (which mounts to /app and is read by
+# the agent as project-scoped MCP config). On bridge networking it adds a host-gateway route
+# so a server on the host is reachable at host.docker.internal — the same mechanism the
+# litellm sidecar uses to reach host Ollama. The Bearer key, if given, is injected via env
+# (TRIGON_MCP_KEY) and referenced by ${TRIGON_MCP_KEY} expansion in the header, so the secret
+# never lands in the file. Coexists with --playwright/--playwright-headless: the .mcp.json
+# merge preserves the Playwright server, and we adapt the networking (see MCP_HOST_NET below).
 if [[ ${#MCP_SERVERS[@]} -gt 0 ]]; then
-  if [[ $PLAYWRIGHT -eq 1 || $PLAYWRIGHT_HEADLESS -eq 1 ]]; then
-    echo "Error: --mcp cannot be combined with --playwright/--playwright-headless." >&2
-    echo "  Those flags manage .mcp.json and networking themselves." >&2
-    exit 1
-  fi
   if [[ $AIR_GAP -eq 1 ]]; then
     echo "Error: --mcp cannot be combined with --air-gap (host access is blocked)." >&2
     exit 1
   fi
 
+  # --playwright switches the container to network_mode: host (incompatible with extra_hosts).
+  # In that mode the host is reachable directly as 127.0.0.1, so skip the host-gateway route
+  # and the URL should use 127.0.0.1 (not host.docker.internal). --playwright-headless and
+  # plain --mcp stay on bridge networking, where extra_hosts is both needed and compatible.
+  MCP_HOST_NET=0
+  [[ $PLAYWRIGHT -eq 1 ]] && MCP_HOST_NET=1
+
   MCP_CONFIG="${PROJECT_ROOT}/.mcp.json"
-  [[ -f "$MCP_CONFIG" ]] && cp "$MCP_CONFIG" "${MCP_CONFIG}.backup"
+  # Back up the user's original .mcp.json only if no earlier flag (e.g. --playwright) already
+  # did — otherwise we'd clobber that backup with a generated config and lose the original.
+  if [[ -z "$MCP_CONFIG_WRITTEN" && -f "$MCP_CONFIG" ]]; then
+    cp "$MCP_CONFIG" "${MCP_CONFIG}.backup"
+  fi
 
   python3 - "$MCP_CONFIG" "$MCP_KEY" "${MCP_SERVERS[@]}" <<'PYEOF'
 import json, os, sys
@@ -592,19 +602,33 @@ PYEOF
 
   [[ -n "$MCP_KEY" ]] && EXTRA_ARGS+=(-e "TRIGON_MCP_KEY=${MCP_KEY}")
 
-  MCP_COMPOSE="$(mktemp --suffix=.yml)"
-  TEMP_FILES+=("$MCP_COMPOSE")
-  cat > "$MCP_COMPOSE" <<COMPOSE_EOF
+  if [[ $MCP_HOST_NET -eq 0 ]]; then
+    MCP_COMPOSE="$(mktemp --suffix=.yml)"
+    TEMP_FILES+=("$MCP_COMPOSE")
+    cat > "$MCP_COMPOSE" <<COMPOSE_EOF
 services:
   ${SERVICE_NAME}:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 COMPOSE_EOF
-  COMPOSE_FILES+=("-f" "$MCP_COMPOSE")
+    COMPOSE_FILES+=("-f" "$MCP_COMPOSE")
+  fi
 
-  echo "MCP: attached ${#MCP_SERVERS[@]} HTTP server(s) — host reachable at host.docker.internal"
+  if [[ $MCP_HOST_NET -eq 1 ]]; then
+    echo "MCP: attached ${#MCP_SERVERS[@]} HTTP server(s) — host networking (--playwright); reach the host as 127.0.0.1"
+  else
+    echo "MCP: attached ${#MCP_SERVERS[@]} HTTP server(s) — host reachable at host.docker.internal"
+  fi
   for spec in "${MCP_SERVERS[@]}"; do echo "  - ${spec%%=*} → ${spec#*=}"; done
   [[ -n "$MCP_KEY" ]] && echo "  auth: Authorization: Bearer <key from --mcp-key> (via \$TRIGON_MCP_KEY)"
+  if [[ $MCP_HOST_NET -eq 1 ]]; then
+    for spec in "${MCP_SERVERS[@]}"; do
+      case "${spec#*=}" in
+        *host.docker.internal*)
+          echo "  WARN: host networking is active — use 127.0.0.1 in the URL, not host.docker.internal" >&2 ;;
+      esac
+    done
+  fi
 fi
 
 # ── --air-gap ─────────────────────────────────────────────────────────────────
