@@ -35,6 +35,17 @@ Network / browser:
   --playwright          Playwright MCP via host Chrome on localhost:9222
                         (switches container to host networking)
   --playwright-headless Playwright MCP with headless Chromium inside the container
+  --mcp NAME=URL        Attach an external HTTP MCP server (repeatable). Adds a
+                        host-gateway route so a server on the host is reachable at
+                        host.docker.internal (e.g.
+                        --mcp palladium-gm=http://host.docker.internal:8000/mcp/).
+                        NOTE: servers mounted under a Starlette/FastMCP sub-path
+                        (e.g. mounted at "/mcp") require a TRAILING SLASH on the URL
+                        — without it the request can fall through to the parent app.
+                        Merges into the project .mcp.json (restored on exit).
+  --mcp-key VALUE       Bearer token for --mcp servers; sent as
+                        "Authorization: Bearer VALUE". Passed via env so the secret
+                        is not written into .mcp.json.
   --air-gap             Block outbound internet from the agent container
                         (requires a local provider, e.g. --provider ollama:MODEL)
 
@@ -91,6 +102,8 @@ USE_API_KEY=0
 AIR_GAP=0
 PROMPT_FILE=""
 MAX_BUDGET_USD=""
+MCP_SERVERS=()
+MCP_KEY=""
 
 # ── Flag parsing ──────────────────────────────────────────────────────────────
 i=0
@@ -125,6 +138,14 @@ while [[ $i -lt ${#FLAGS[@]} ]]; do
     --root)        ROOT_MODE=1 ;;
     --playwright|--playwrite) PLAYWRIGHT=1 ;;
     --playwright-headless)    PLAYWRIGHT_HEADLESS=1 ;;
+    --mcp=*)      MCP_SERVERS+=("${arg#--mcp=}") ;;
+    --mcp)
+      i=$((i+1)); [[ $i -lt ${#FLAGS[@]} ]] || { echo "Error: --mcp requires NAME=URL" >&2; exit 1; }
+      MCP_SERVERS+=("${FLAGS[$i]}") ;;
+    --mcp-key=*)  MCP_KEY="${arg#--mcp-key=}" ;;
+    --mcp-key)
+      i=$((i+1)); [[ $i -lt ${#FLAGS[@]} ]] || { echo "Error: --mcp-key requires a value" >&2; exit 1; }
+      MCP_KEY="${FLAGS[$i]}" ;;
     --api)         USE_API_KEY=1 ;;
     --air-gap)    AIR_GAP=1 ;;
     --security)    MODE="security" ;;  # backward compat alias for --mode security
@@ -512,6 +533,78 @@ services:
 COMPOSE_EOF
   COMPOSE_FILES+=("-f" "$PLAYWRIGHT_HEADLESS_COMPOSE")
   export PLAYWRIGHT_ENABLED=1
+fi
+
+# ── --mcp: attach external HTTP MCP server(s) ────────────────────────────────
+# Merges http MCP servers into the project .mcp.json (which mounts to /app and is
+# read by the agent as project-scoped MCP config), and adds a host-gateway route so a
+# server running on the host is reachable from the bridge-isolated container at
+# host.docker.internal — the same mechanism the litellm sidecar uses to reach host
+# Ollama. The Bearer key, if given, is injected via env (TRIGON_MCP_KEY) and referenced
+# by ${TRIGON_MCP_KEY} expansion in the header, so the secret never lands in the file.
+if [[ ${#MCP_SERVERS[@]} -gt 0 ]]; then
+  if [[ $PLAYWRIGHT -eq 1 || $PLAYWRIGHT_HEADLESS -eq 1 ]]; then
+    echo "Error: --mcp cannot be combined with --playwright/--playwright-headless." >&2
+    echo "  Those flags manage .mcp.json and networking themselves." >&2
+    exit 1
+  fi
+  if [[ $AIR_GAP -eq 1 ]]; then
+    echo "Error: --mcp cannot be combined with --air-gap (host access is blocked)." >&2
+    exit 1
+  fi
+
+  MCP_CONFIG="${PROJECT_ROOT}/.mcp.json"
+  [[ -f "$MCP_CONFIG" ]] && cp "$MCP_CONFIG" "${MCP_CONFIG}.backup"
+
+  python3 - "$MCP_CONFIG" "$MCP_KEY" "${MCP_SERVERS[@]}" <<'PYEOF'
+import json, os, sys
+
+path, key = sys.argv[1], sys.argv[2]
+specs = sys.argv[3:]
+
+cfg = {}
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            cfg = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        cfg = {}
+
+servers = cfg.setdefault("mcpServers", {})
+for spec in specs:
+    if "=" not in spec:
+        sys.stderr.write(f"Error: --mcp expects NAME=URL, got: {spec}\n")
+        sys.exit(1)
+    name, url = spec.split("=", 1)
+    entry = {"type": "http", "url": url}
+    if key:
+        entry["headers"] = {"Authorization": "Bearer ${TRIGON_MCP_KEY}"}
+    servers[name] = entry
+
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYEOF
+
+  MCP_CONFIG_WRITTEN="$MCP_CONFIG"
+  mkdir -p "$CLAUDE_SETTINGS_DIR/config"
+  cp "$MCP_CONFIG" "$CLAUDE_SETTINGS_DIR/config/mcp.json"
+
+  [[ -n "$MCP_KEY" ]] && EXTRA_ARGS+=(-e "TRIGON_MCP_KEY=${MCP_KEY}")
+
+  MCP_COMPOSE="$(mktemp --suffix=.yml)"
+  TEMP_FILES+=("$MCP_COMPOSE")
+  cat > "$MCP_COMPOSE" <<COMPOSE_EOF
+services:
+  ${SERVICE_NAME}:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+COMPOSE_EOF
+  COMPOSE_FILES+=("-f" "$MCP_COMPOSE")
+
+  echo "MCP: attached ${#MCP_SERVERS[@]} HTTP server(s) — host reachable at host.docker.internal"
+  for spec in "${MCP_SERVERS[@]}"; do echo "  - ${spec%%=*} → ${spec#*=}"; done
+  [[ -n "$MCP_KEY" ]] && echo "  auth: Authorization: Bearer <key from --mcp-key> (via \$TRIGON_MCP_KEY)"
 fi
 
 # ── --air-gap ─────────────────────────────────────────────────────────────────
