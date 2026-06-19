@@ -5,6 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROVIDERS_DIR="${SCRIPT_DIR}/providers"
 COMPOSE_DIR="${SCRIPT_DIR}/compose"
 
+# Portable mktemp with a .yml suffix: BSD mktemp (macOS) only randomizes a
+# trailing XXXXXX, unlike GNU mktemp's --suffix flag.
+mktemp_yml() {
+  local f
+  f="$(mktemp "${TMPDIR:-/tmp}/trigon.XXXXXX")"
+  mv "$f" "$f.yml"
+  echo "$f.yml"
+}
+
 usage() {
   cat <<'USAGE'
 Usage: trigon-up.sh [PROJECT_PATH ...] [FLAGS]
@@ -216,7 +225,7 @@ else
     exit 1
   fi
 
-  eval "$(python3 - "$PROVIDER_FILE" "$MODEL_SPEC" <<'PYEOF'
+  PROVIDER_VARS="$(python3 - "$PROVIDER_FILE" "$MODEL_SPEC" <<'PYEOF'
 import sys
 
 path = sys.argv[1]
@@ -240,14 +249,14 @@ with open(path) as f:
             s = line.strip()
             if section == 'model_map' and ':' in s:
                 k, _, v = s.partition(':')
-                data['model_map'][k.strip()] = v.strip().strip('"\'')
+                data['model_map'][k.strip()] = v.strip().strip('"' "'")
             elif section == 'requires' and s.startswith('- '):
                 data['requires'].append(s[2:].strip())
         else:
             if ':' in line:
                 k, _, v = line.partition(':')
                 k = k.strip()
-                v = v.strip().strip('"\'')
+                v = v.strip().strip('"' "'")
                 if k in data and isinstance(data[k], (list, dict)):
                     section = k
                 else:
@@ -273,6 +282,7 @@ print(f"PROVIDER_NOTES={sh(data.get('notes',''))}")
 print(f"PROVIDER_SUPPORTS_THINKING={sh(data.get('supports_thinking',''))}")
 PYEOF
   )"
+  eval "$PROVIDER_VARS"
 fi
 
 # ── Validate required env vars ────────────────────────────────────────────────
@@ -356,7 +366,7 @@ if [[ "$PROVIDER_TYPE" == "litellm-proxy" ]]; then
   if [[ -n "$LITELLM_USER_CONFIG" ]]; then
     LITELLM_CONFIG="$LITELLM_USER_CONFIG"
   else
-    LITELLM_CONFIG="$(mktemp --suffix=.yml)"
+    LITELLM_CONFIG="$(mktemp_yml)"
     TEMP_FILES+=("$LITELLM_CONFIG")
     FULL_MODEL="${PROVIDER_LITELLM_PREFIX}${PROVIDER_MODEL}"
     {
@@ -376,7 +386,7 @@ if [[ "$PROVIDER_TYPE" == "litellm-proxy" ]]; then
   export LITELLM_CONFIG
 
   # Generate compose fragment for the sidecar
-  LITELLM_COMPOSE="$(mktemp --suffix=.yml)"
+  LITELLM_COMPOSE="$(mktemp_yml)"
   TEMP_FILES+=("$LITELLM_COMPOSE")
   cat > "$LITELLM_COMPOSE" <<COMPOSE_EOF
 services:
@@ -494,7 +504,7 @@ if [[ $PLAYWRIGHT -eq 1 ]]; then
   echo "Playwright MCP: config written — connecting to host Chrome on localhost:9222"
   echo "Make sure Chrome is running with: google-chrome --remote-debugging-port=9222"
 
-  PLAYWRIGHT_COMPOSE="$(mktemp --suffix=.yml)"
+  PLAYWRIGHT_COMPOSE="$(mktemp_yml)"
   TEMP_FILES+=("$PLAYWRIGHT_COMPOSE")
   cat > "$PLAYWRIGHT_COMPOSE" <<COMPOSE_EOF
 services:
@@ -522,7 +532,7 @@ if [[ $PLAYWRIGHT_HEADLESS -eq 1 ]]; then
   cp "$MCP_CONFIG" "$CLAUDE_SETTINGS_DIR/config/mcp.json"
   echo "Playwright MCP (headless): config written — Chromium runs inside the container"
 
-  PLAYWRIGHT_HEADLESS_COMPOSE="$(mktemp --suffix=.yml)"
+  PLAYWRIGHT_HEADLESS_COMPOSE="$(mktemp_yml)"
   TEMP_FILES+=("$PLAYWRIGHT_HEADLESS_COMPOSE")
   cat > "$PLAYWRIGHT_HEADLESS_COMPOSE" <<COMPOSE_EOF
 services:
@@ -603,7 +613,7 @@ PYEOF
   [[ -n "$MCP_KEY" ]] && EXTRA_ARGS+=(-e "TRIGON_MCP_KEY=${MCP_KEY}")
 
   if [[ $MCP_HOST_NET -eq 0 ]]; then
-    MCP_COMPOSE="$(mktemp --suffix=.yml)"
+    MCP_COMPOSE="$(mktemp_yml)"
     TEMP_FILES+=("$MCP_COMPOSE")
     cat > "$MCP_COMPOSE" <<COMPOSE_EOF
 services:
@@ -648,7 +658,7 @@ if [[ $AIR_GAP -eq 1 ]]; then
     echo "  cannot reach external URLs. Intranet and local targets only." >&2
   fi
 
-  AIR_GAP_COMPOSE="$(mktemp --suffix=.yml)"
+  AIR_GAP_COMPOSE="$(mktemp_yml)"
   TEMP_FILES+=("$AIR_GAP_COMPOSE")
 
   if [[ "$PROVIDER_TYPE" == "litellm-proxy" ]]; then
