@@ -32,6 +32,11 @@ jobs:
             bash -n "$f"
           done
 
+      # Compile the host-side helper scripts — catches syntax errors in the
+      # extracted python without needing to launch a container.
+      - name: python helper syntax check
+        run: python3 -m py_compile lib/*.py
+
       # Smoke test: --help exits before touching Docker, so it confirms the
       # entrypoint parses and runs end-to-end without needing a container.
       - name: trigon-up.sh --help runs

@@ -35,10 +35,15 @@ These compose freely: any provider, with any agent, in any mode. Providers that 
 ## Prerequisites
 
 - **Docker** with the **Compose v2** plugin (`docker compose`); `docker-compose` v1 also works
-- **bash** 4+
-- **python3** on the host (the provider-YAML parser is embedded Python; no `pip` packages needed)
-- **Linux** — tested on Ubuntu. The `--air-gap` and remote-Ollama networking rely on Linux Docker bridge behaviour; macOS/Windows are untested.
+- **bash** 4+ recommended. The script avoids bash-4-only features, so macOS's stock bash 3.2 also works.
+- **python3** on the host (used by the helper scripts in [`lib/`](lib/) for provider-YAML parsing and MCP config merging — standard library only, no `pip` packages needed)
 - An account or API key for whichever provider you use (see [Authentication](#authentication))
+
+**Platforms:**
+
+- **Linux** — the reference platform, tested on Ubuntu.
+- **macOS** — supported; BSD-userland portability fixes are applied (e.g. `mktemp`). Note: `--air-gap` and remote-Ollama networking rely on Linux Docker bridge behaviour and are untested on macOS.
+- **Windows** — via **WSL2**, which is a real Linux environment and the closest to native; run Trigon from inside the WSL2 distro, not from native Windows.
 
 ---
 
@@ -87,7 +92,9 @@ Run `./trigon-up.sh --help` for the full flag reference.
 | `--root` | off | Run the container as root |
 | `--playwright` | off | Playwright MCP via host Chrome on `localhost:9222` (host networking) |
 | `--playwright-headless` | off | Playwright MCP with headless Chromium inside the container — no host Chrome, works with all providers |
-| `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`); the LiteLLM sidecar retains host access for model calls. |
+| `--mcp NAME=URL` | — | Attach an external HTTP MCP server (repeatable). Merged into the project `.mcp.json` and restored on exit; a host-gateway route makes a server on the host reachable at `host.docker.internal`. Coexists with `--playwright`/`--playwright-headless`. See [docs/mcp.md](docs/mcp.md). |
+| `--mcp-key VALUE` | — | Bearer token for `--mcp` servers, sent as `Authorization: Bearer VALUE`. Passed via env so the secret is never written into `.mcp.json`. |
+| `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`); the LiteLLM sidecar retains host access for model calls. Incompatible with `--mcp` (host access is blocked). |
 | `--prompt-file PATH` | — | Non-interactive: pass prompt content, run, and exit on completion |
 | `--max-budget USD` | — | Cap API spend for pipeline runs (claude-code only) |
 | `--security` | — | Alias for `--mode security` (backward compat) |
@@ -211,6 +218,10 @@ trigon/
 ├── trigon-up.sh             # main entrypoint
 ├── build.sh                 # build agent images
 │
+├── lib/                     # host-side helper scripts (python3, stdlib only)
+│   ├── parse_provider.py    # provider YAML → shell vars
+│   └── merge_mcp.py         # merge --mcp servers into .mcp.json
+│
 ├── agents/
 │   ├── claude-code/
 │   │   ├── Dockerfile       # multi-stage: base → mode-{dev|security} → final
@@ -247,6 +258,7 @@ trigon/
     ├── providers.md
     ├── agents.md
     ├── modes.md
+    ├── mcp.md               # external --mcp HTTP servers
     ├── pipelines.md
     ├── trigon-architecture.md
     └── internal/            # planning & strategy docs (not user-facing)

@@ -60,6 +60,14 @@ Empty string for providers accessed via SDK (e.g. AWS Bedrock via boto3).
 
 Human-readable string shown when this provider is selected. Useful for setup reminders.
 
+### `supports_thinking` (litellm-proxy only, optional)
+
+Set to `false` for upstream models that do not support extended-thinking
+parameters. When `false`, the generated LiteLLM config adds
+`model_info.supports_thinking: false` so LiteLLM drops thinking params instead
+of forwarding them to a model that would reject them. Omit (or leave empty) for
+models where thinking params are fine.
+
 ---
 
 ## Provider flag parsing rules
