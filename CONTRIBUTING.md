@@ -30,9 +30,8 @@ The [architecture overview](docs/trigon-architecture.md) explains how
 
 ## Before you push: run the checks
 
-CI runs three checks on every push and pull request (see
-`.github/workflows/ci.yml`). Run them locally first — they take seconds and need
-no Docker:
+CI runs on every push and pull request (see `.github/workflows/ci.yml`). Every
+check runs locally in seconds and needs no Docker:
 
 ```bash
 # 1. Static analysis. CI uses --severity=warning; running the default locally
@@ -41,13 +40,18 @@ shellcheck trigon-up.sh build.sh agents/*/wrapper.sh
 
 # 2. Syntax check (parses without executing)
 for f in trigon-up.sh build.sh agents/*/wrapper.sh; do bash -n "$f"; done
+python3 -m py_compile lib/*.py
 
 # 3. Smoke test
 ./trigon-up.sh --help
+
+# 4. Test suite (see "Testing changes" below)
+python3 -m unittest discover -s tests
+bats tests/cli
 ```
 
-Install shellcheck with `sudo apt-get install shellcheck` (Debian/Ubuntu) or
-`brew install shellcheck` (macOS).
+Install the tools with `sudo apt-get install shellcheck bats` (Debian/Ubuntu) or
+`brew install shellcheck bats-core` (macOS).
 
 ## Shell conventions
 
@@ -60,8 +64,31 @@ Install shellcheck with `sudo apt-get install shellcheck` (Debian/Ubuntu) or
 
 ## Testing changes
 
-There is no full automated test suite yet. Beyond the CI checks above, verify
-your change by building the relevant image and launching it:
+The suite lives in [`tests/`](tests/) and runs without Docker:
+
+- **`tests/test_*.py`** — Python unit tests (stdlib `unittest`, no pip) for the
+  host-side helpers in `lib/` (provider-YAML parsing, MCP merge).
+- **`tests/cli/*.bats`** — functional tests of `trigon-up.sh`: the validation
+  guards, and the full provider → env → compose wiring via `--dry-run`.
+
+```bash
+python3 -m unittest discover -s tests   # python helpers
+bats tests/cli                          # CLI behaviour
+```
+
+`--dry-run` resolves everything and prints the command it *would* run, but
+starts no container — that's what lets the CLI tests cover the launch path
+cheaply. Use it yourself to debug a launch:
+
+```bash
+./trigon-up.sh ~/project --provider deepseek --dry-run
+```
+
+**When adding a feature**, add a test: a new provider gets a case in
+`test_parse_provider.py`; a new flag or guard gets a case in `tests/cli/`.
+
+Some things still need a real container — image contents, the agent actually
+talking to a provider, Playwright. For those, build and launch:
 
 ```bash
 ./build.sh --mode security        # if you touched security mode

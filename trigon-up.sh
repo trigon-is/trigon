@@ -71,6 +71,9 @@ Pipeline:
   --prompt-file PATH    Non-interactive: run the prompt, exit on completion
 
 Help:
+  --dry-run             Resolve provider, assemble compose files and env, print
+                        the command that would run, then exit — no container is
+                        started. Useful for debugging and tests.
   -h, --help            Show this help and exit
 USAGE
   exit 0
@@ -117,6 +120,7 @@ PROMPT_FILE=""
 MAX_BUDGET_USD=""
 MCP_SERVERS=()
 MCP_KEY=""
+DRY_RUN=0
 
 # ── Flag parsing ──────────────────────────────────────────────────────────────
 i=0
@@ -161,6 +165,7 @@ while [[ $i -lt ${#FLAGS[@]} ]]; do
       MCP_KEY="${FLAGS[$i]}" ;;
     --api)         USE_API_KEY=1 ;;
     --air-gap)    AIR_GAP=1 ;;
+    --dry-run)    DRY_RUN=1 ;;
     --security)    MODE="security" ;;  # backward compat alias for --mode security
     *)             echo "Warning: unknown flag '$arg'" >&2 ;;
   esac
@@ -241,15 +246,6 @@ done
 
 echo "Provider: ${PROVIDER_NAME} (${PROVIDER_TYPE}), model: ${PROVIDER_MODEL:-default}"
 [[ -n "${PROVIDER_NOTES:-}" ]] && echo "Note: $PROVIDER_NOTES"
-
-# ── Docker Compose detection ──────────────────────────────────────────────────
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE_CMD=(docker compose)
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE_CMD=(docker-compose)
-else
-  echo "Error: Docker Compose not found." >&2; exit 1
-fi
 
 # ── User/group ────────────────────────────────────────────────────────────────
 if [[ $ROOT_MODE -eq 1 ]]; then
@@ -638,8 +634,36 @@ done
 echo "Agent: ${AGENT} | Provider: ${PROVIDER_NAME} | Mode: ${MODE} | Model: ${PROVIDER_MODEL:-default}"
 echo "Container: ${NAME} | Settings: ${CLAUDE_SETTINGS_DIR}"
 [[ $AIR_GAP -eq 1 ]] && echo "Network: air-gapped"
+echo "Compose: ${COMPOSE_FILES[*]}"
+
+# ── Docker Compose detection ──────────────────────────────────────────────────
+# Done here (just before launch) so all argument/provider validation above can
+# run without Docker present — which is what lets the test suite exercise it.
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker-compose)
+elif [[ $DRY_RUN -eq 1 ]]; then
+  # Dry-run is a config preview; show the intended command even without Docker.
+  COMPOSE_CMD=(docker compose)
+  echo "Note: Docker Compose not found — dry-run shows the intended command anyway." >&2
+else
+  echo "Error: Docker Compose not found." >&2; exit 1
+fi
 
 # ── Launch ────────────────────────────────────────────────────────────────────
+# run_compose runs the assembled command — or, under --dry-run, prints it
+# (shell-quoted) and exits before any container starts.
+run_compose() {
+  if [[ $DRY_RUN -eq 1 ]]; then
+    printf '[dry-run] would run:'
+    printf ' %q' "$@"
+    printf '\n'
+    exit 0
+  fi
+  "$@"
+}
+
 if [[ "$AGENT" == "opencode" ]]; then
   # OpenCode: wrapper.sh handles pipeline/interactive mode via PROMPT_FILE env var.
   # We never override the CMD — the wrapper always runs and configures the provider.
@@ -649,23 +673,23 @@ if [[ "$AGENT" == "opencode" ]]; then
   fi
   [[ $YOLO -eq 1 ]] && echo "Warning: --yolo has no effect for opencode (no equivalent flag)" >&2
   [[ -n "$MAX_BUDGET_USD" ]] && echo "Warning: --max-budget has no effect for opencode" >&2
-  "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
+  run_compose "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
     "${EXTRA_ARGS[@]}" -it "$SERVICE_NAME"
 
 elif [[ -n "$PROMPT_FILE" ]]; then
   CLAUDE_ARGS=(-p "$(cat "$PROMPT_FILE")" --no-session-persistence)
   [[ $YOLO -eq 1 ]] && CLAUDE_ARGS+=(--dangerously-skip-permissions)
   [[ -n "$MAX_BUDGET_USD" ]] && CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
-  "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
+  run_compose "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
     "${EXTRA_ARGS[@]}" "$SERVICE_NAME" claude "${CLAUDE_ARGS[@]}"
 
 else
   if [[ $YOLO -eq 1 ]]; then
     echo "YOLO: passing --dangerously-skip-permissions to claude"
-    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
+    run_compose "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
       "${EXTRA_ARGS[@]}" -it "$SERVICE_NAME" claude --dangerously-skip-permissions
   else
-    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
+    run_compose "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
       "${EXTRA_ARGS[@]}" -it "$SERVICE_NAME"
   fi
 fi

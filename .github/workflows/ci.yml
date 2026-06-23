@@ -14,8 +14,8 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Install shellcheck and bats
+        run: sudo apt-get update && sudo apt-get install -y shellcheck bats
 
       # Static analysis. --severity=warning catches genuine bugs (bad quoting,
       # undefined variables, broken tests) while skipping style/info nags.
@@ -41,3 +41,13 @@ jobs:
       # entrypoint parses and runs end-to-end without needing a container.
       - name: trigon-up.sh --help runs
         run: ./trigon-up.sh --help
+
+      # Unit tests for the host-side python helpers (stdlib unittest, no pip).
+      - name: python unit tests
+        run: python3 -m unittest discover -s tests -v
+
+      # Functional tests of the CLI: validation guards and --dry-run launch
+      # wiring. --dry-run resolves everything but starts no container, so these
+      # need no Docker.
+      - name: bats CLI tests
+        run: bats tests/cli
