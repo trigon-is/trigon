@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROVIDERS_DIR="${SCRIPT_DIR}/providers"
 COMPOSE_DIR="${SCRIPT_DIR}/compose"
+LIB_DIR="${SCRIPT_DIR}/lib"
 
 # Portable mktemp with a .yml suffix: BSD mktemp (macOS) only randomizes a
 # trailing XXXXXX, unlike GNU mktemp's --suffix flag.
@@ -70,6 +71,9 @@ Pipeline:
   --prompt-file PATH    Non-interactive: run the prompt, exit on completion
 
 Help:
+  --dry-run             Resolve provider, assemble compose files and env, print
+                        the command that would run, then exit — no container is
+                        started. Useful for debugging and tests.
   -h, --help            Show this help and exit
 USAGE
   exit 0
@@ -116,6 +120,7 @@ PROMPT_FILE=""
 MAX_BUDGET_USD=""
 MCP_SERVERS=()
 MCP_KEY=""
+DRY_RUN=0
 
 # ── Flag parsing ──────────────────────────────────────────────────────────────
 i=0
@@ -160,6 +165,7 @@ while [[ $i -lt ${#FLAGS[@]} ]]; do
       MCP_KEY="${FLAGS[$i]}" ;;
     --api)         USE_API_KEY=1 ;;
     --air-gap)    AIR_GAP=1 ;;
+    --dry-run)    DRY_RUN=1 ;;
     --security)    MODE="security" ;;  # backward compat alias for --mode security
     *)             echo "Warning: unknown flag '$arg'" >&2 ;;
   esac
@@ -225,63 +231,8 @@ else
     exit 1
   fi
 
-  PROVIDER_VARS="$(python3 - "$PROVIDER_FILE" "$MODEL_SPEC" <<'PYEOF'
-import sys
-
-path = sys.argv[1]
-model_spec = sys.argv[2] if len(sys.argv) > 2 else ""
-
-data = {
-    'type': '', 'base_url': '', 'default_model': '',
-    'api_key_env': '', 'litellm_model_prefix': '',
-    'litellm_api_base': '', 'notes': '',
-    'supports_thinking': '',
-    'model_map': {}, 'requires': [],
-}
-
-section = None
-with open(path) as f:
-    for line in f:
-        line = line.rstrip()
-        if not line or line.lstrip().startswith('#'):
-            continue
-        if line[:1] in (' ', '\t'):
-            s = line.strip()
-            if section == 'model_map' and ':' in s:
-                k, _, v = s.partition(':')
-                data['model_map'][k.strip()] = v.strip().strip('"' "'")
-            elif section == 'requires' and s.startswith('- '):
-                data['requires'].append(s[2:].strip())
-        else:
-            if ':' in line:
-                k, _, v = line.partition(':')
-                k = k.strip()
-                v = v.strip().strip('"' "'")
-                if k in data and isinstance(data[k], (list, dict)):
-                    section = k
-                else:
-                    data[k] = v
-                    section = None
-
-model = model_spec or data.get('default_model', '')
-if model in data['model_map']:
-    model = data['model_map'][model]
-
-def sh(v):
-    v = str(v) if v else ''
-    return "'" + v.replace("'", "'\\''") + "'"
-
-print(f"PROVIDER_TYPE={sh(data.get('type',''))}")
-print(f"PROVIDER_BASE_URL={sh(data.get('base_url',''))}")
-print(f"PROVIDER_MODEL={sh(model)}")
-print(f"PROVIDER_API_KEY_ENV={sh(data.get('api_key_env',''))}")
-print(f"PROVIDER_LITELLM_PREFIX={sh(data.get('litellm_model_prefix',''))}")
-print(f"PROVIDER_LITELLM_API_BASE={sh(data.get('litellm_api_base',''))}")
-print(f"PROVIDER_REQUIRES={sh(' '.join(data.get('requires',[])))}")
-print(f"PROVIDER_NOTES={sh(data.get('notes',''))}")
-print(f"PROVIDER_SUPPORTS_THINKING={sh(data.get('supports_thinking',''))}")
-PYEOF
-  )"
+  # Parse the provider YAML (see lib/parse_provider.py) into PROVIDER_* vars.
+  PROVIDER_VARS="$(python3 "${LIB_DIR}/parse_provider.py" "$PROVIDER_FILE" "$MODEL_SPEC")"
   eval "$PROVIDER_VARS"
 fi
 
@@ -295,15 +246,6 @@ done
 
 echo "Provider: ${PROVIDER_NAME} (${PROVIDER_TYPE}), model: ${PROVIDER_MODEL:-default}"
 [[ -n "${PROVIDER_NOTES:-}" ]] && echo "Note: $PROVIDER_NOTES"
-
-# ── Docker Compose detection ──────────────────────────────────────────────────
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE_CMD=(docker compose)
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE_CMD=(docker-compose)
-else
-  echo "Error: Docker Compose not found." >&2; exit 1
-fi
 
 # ── User/group ────────────────────────────────────────────────────────────────
 if [[ $ROOT_MODE -eq 1 ]]; then
@@ -576,35 +518,8 @@ if [[ ${#MCP_SERVERS[@]} -gt 0 ]]; then
     cp "$MCP_CONFIG" "${MCP_CONFIG}.backup"
   fi
 
-  python3 - "$MCP_CONFIG" "$MCP_KEY" "${MCP_SERVERS[@]}" <<'PYEOF'
-import json, os, sys
-
-path, key = sys.argv[1], sys.argv[2]
-specs = sys.argv[3:]
-
-cfg = {}
-if os.path.exists(path):
-    try:
-        with open(path) as f:
-            cfg = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        cfg = {}
-
-servers = cfg.setdefault("mcpServers", {})
-for spec in specs:
-    if "=" not in spec:
-        sys.stderr.write(f"Error: --mcp expects NAME=URL, got: {spec}\n")
-        sys.exit(1)
-    name, url = spec.split("=", 1)
-    entry = {"type": "http", "url": url}
-    if key:
-        entry["headers"] = {"Authorization": "Bearer ${TRIGON_MCP_KEY}"}
-    servers[name] = entry
-
-with open(path, "w") as f:
-    json.dump(cfg, f, indent=2)
-    f.write("\n")
-PYEOF
+  # Merge the --mcp servers into .mcp.json (see lib/merge_mcp.py).
+  python3 "${LIB_DIR}/merge_mcp.py" "$MCP_CONFIG" "$MCP_KEY" "${MCP_SERVERS[@]}"
 
   MCP_CONFIG_WRITTEN="$MCP_CONFIG"
   mkdir -p "$CLAUDE_SETTINGS_DIR/config"
@@ -719,8 +634,36 @@ done
 echo "Agent: ${AGENT} | Provider: ${PROVIDER_NAME} | Mode: ${MODE} | Model: ${PROVIDER_MODEL:-default}"
 echo "Container: ${NAME} | Settings: ${CLAUDE_SETTINGS_DIR}"
 [[ $AIR_GAP -eq 1 ]] && echo "Network: air-gapped"
+echo "Compose: ${COMPOSE_FILES[*]}"
+
+# ── Docker Compose detection ──────────────────────────────────────────────────
+# Done here (just before launch) so all argument/provider validation above can
+# run without Docker present — which is what lets the test suite exercise it.
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker-compose)
+elif [[ $DRY_RUN -eq 1 ]]; then
+  # Dry-run is a config preview; show the intended command even without Docker.
+  COMPOSE_CMD=(docker compose)
+  echo "Note: Docker Compose not found — dry-run shows the intended command anyway." >&2
+else
+  echo "Error: Docker Compose not found." >&2; exit 1
+fi
 
 # ── Launch ────────────────────────────────────────────────────────────────────
+# run_compose runs the assembled command — or, under --dry-run, prints it
+# (shell-quoted) and exits before any container starts.
+run_compose() {
+  if [[ $DRY_RUN -eq 1 ]]; then
+    printf '[dry-run] would run:'
+    printf ' %q' "$@"
+    printf '\n'
+    exit 0
+  fi
+  "$@"
+}
+
 if [[ "$AGENT" == "opencode" ]]; then
   # OpenCode: wrapper.sh handles pipeline/interactive mode via PROMPT_FILE env var.
   # We never override the CMD — the wrapper always runs and configures the provider.
@@ -730,23 +673,23 @@ if [[ "$AGENT" == "opencode" ]]; then
   fi
   [[ $YOLO -eq 1 ]] && echo "Warning: --yolo has no effect for opencode (no equivalent flag)" >&2
   [[ -n "$MAX_BUDGET_USD" ]] && echo "Warning: --max-budget has no effect for opencode" >&2
-  "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
+  run_compose "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
     "${EXTRA_ARGS[@]}" -it "$SERVICE_NAME"
 
 elif [[ -n "$PROMPT_FILE" ]]; then
   CLAUDE_ARGS=(-p "$(cat "$PROMPT_FILE")" --no-session-persistence)
   [[ $YOLO -eq 1 ]] && CLAUDE_ARGS+=(--dangerously-skip-permissions)
   [[ -n "$MAX_BUDGET_USD" ]] && CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
-  "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
+  run_compose "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
     "${EXTRA_ARGS[@]}" "$SERVICE_NAME" claude "${CLAUDE_ARGS[@]}"
 
 else
   if [[ $YOLO -eq 1 ]]; then
     echo "YOLO: passing --dangerously-skip-permissions to claude"
-    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
+    run_compose "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
       "${EXTRA_ARGS[@]}" -it "$SERVICE_NAME" claude --dangerously-skip-permissions
   else
-    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
+    run_compose "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
       "${EXTRA_ARGS[@]}" -it "$SERVICE_NAME"
   fi
 fi

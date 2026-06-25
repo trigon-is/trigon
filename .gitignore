@@ -6,6 +6,10 @@
 security-results/
 wordlists/
 
+# Python bytecode cache (e.g. from lib/ helper scripts)
+__pycache__/
+*.pyc
+
 # Editor / OS noise
 *.swp
 *.swo
