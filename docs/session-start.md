@@ -33,7 +33,33 @@ var injection in the launch script.
 
 ---
 
-## Current state (as of 2026-06-13)
+## Current state (as of 2026-07-06)
+
+### Recent changes (2026-07-06)
+
+- **Threat-model quick wins implemented** (the four "highest-ROI" controls from
+  `docs/threat-model.md` §5, statuses updated there):
+  - **G1 mount deny-list** in `trigon-up.sh` — refuses `/`, `$HOME`, `/home`,
+    `/etc`, `/root`, other system roots, credential dirs (`~/.ssh`, `~/.aws`,
+    `~/.claude`, …) and `~/.trigon-settings*`; project paths are now
+    symlink-resolved (`pwd -P`) before checking; `--allow-unsafe-mount`
+    overrides with a warning.
+  - **G7 runtime hardening** in `compose/base.yml` — `no-new-privileges` +
+    `cap_drop: ALL` (security mode's `cap_add` and headless-Playwright
+    `SYS_PTRACE` merge back on top); `--root` now adds back only the baseline
+    file/uid caps via a generated fragment.
+  - **G7 resource limits** — `pids_limit`/`mem_limit`/`cpus` in base.yml,
+    driven by `TRIGON_PIDS_LIMIT`/`TRIGON_MEM_LIMIT`/`TRIGON_CPUS`
+    (defaults 4096 / 8g / all host cores, exported by `trigon-up.sh`).
+  - **G3 metadata guard** — `--playwright` warns loudly about host networking
+    and refuses to launch when `169.254.169.254` answers a probe, unless
+    `--allow-metadata`; probe overridable via `TRIGON_METADATA_PROBE` (tests).
+  - New tests: `tests/cli/hardening.bats`. README gained a
+    "Security defaults" section + two new flag rows.
+  - **Not yet verified against live containers** (no Docker in the dev
+    session): a real `--playwright-headless` run should confirm Chromium still
+    launches under `no-new-privileges`/`cap_drop: ALL`, and a `--root` run
+    should confirm `apt-get install` works with the restored cap set.
 
 ### Recent changes (2026-06-13)
 

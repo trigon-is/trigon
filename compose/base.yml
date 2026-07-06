@@ -3,6 +3,19 @@ services:
     image: ${TRIGON_IMAGE:-claude-code-env}
     working_dir: /app
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    # Runtime hardening (docs/threat-model.md G7): drop every capability and
+    # forbid privilege escalation. Modes/flags that need a capability add it
+    # back explicitly (security.yml: NET_RAW/NET_ADMIN; --playwright-headless:
+    # SYS_PTRACE; --root: baseline file/uid caps). Resource limits bound a
+    # runaway or fork-bombing agent; trigon-up.sh exports the TRIGON_* vars
+    # (override per run, e.g. TRIGON_MEM_LIMIT=16g).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: ${TRIGON_PIDS_LIMIT:-4096}
+    mem_limit: ${TRIGON_MEM_LIMIT:-8g}
+    cpus: ${TRIGON_CPUS:-2}
     environment:
       - HOME=/settings
       - XDG_CONFIG_HOME=/settings/config
