@@ -95,6 +95,8 @@ Run `./trigon-up.sh --help` for the full flag reference.
 | `--mcp NAME=URL` | — | Attach an external HTTP MCP server (repeatable). Merged into the project `.mcp.json` and restored on exit; a host-gateway route makes a server on the host reachable at `host.docker.internal`. Coexists with `--playwright`/`--playwright-headless`. See [docs/mcp.md](docs/mcp.md). |
 | `--mcp-key VALUE` | — | Bearer token for `--mcp` servers, sent as `Authorization: Bearer VALUE`. Passed via env so the secret is never written into `.mcp.json`. |
 | `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`); the LiteLLM sidecar retains host access for model calls. Incompatible with `--mcp` (host access is blocked). |
+| `--allow-unsafe-mount` | off | Override the mount deny-list and mount a sensitive path (`/`, `$HOME`, `/etc`, `~/.ssh`, …) anyway. See [Security defaults](#security-defaults) |
+| `--allow-metadata` | off | Proceed with `--playwright` even when the cloud metadata service (`169.254.169.254`) is reachable from the host |
 | `--prompt-file PATH` | — | Non-interactive: pass prompt content, run, and exit on completion |
 | `--max-budget USD` | — | Cap API spend for pipeline runs (claude-code only) |
 | `--security` | — | Alias for `--mode security` (backward compat) |
@@ -186,6 +188,18 @@ Both agents support non-interactive `--prompt-file` pipeline mode. See **[docs/a
 See **[docs/modes.md](docs/modes.md)** for what each mode installs and how to add one.
 
 ---
+
+## Security defaults
+
+Trigon treats the container as untrusted (see [docs/threat-model.md](docs/threat-model.md)). Out of the box:
+
+- **Non-root** — the container process runs as your UID/GID (`--root` opts out, restoring only the baseline file/uid capabilities dpkg/npm need).
+- **All capabilities dropped, no privilege escalation** — `cap_drop: ALL` + `no-new-privileges`; modes/flags add back only what they need (security mode: `NET_RAW`/`NET_ADMIN`; `--playwright-headless`: `SYS_PTRACE`).
+- **Resource limits** — defaults of 4096 pids / 8 GB RAM / all host cores; override per run with `TRIGON_PIDS_LIMIT`, `TRIGON_MEM_LIMIT`, `TRIGON_CPUS`.
+- **Mount deny-list** — refuses to mount `/`, `$HOME`, `/etc`, `/root`, credential directories (`~/.ssh`, `~/.aws`, `~/.claude`, …) and Trigon settings dirs; symlinks are resolved first. `--allow-unsafe-mount` overrides.
+- **Cloud metadata guard** — `--playwright` (host networking) refuses to launch when `169.254.169.254` is reachable, so a prompt-injected agent can't grab instance credentials on a cloud VM. `--allow-metadata` overrides.
+
+No Docker socket is ever mounted, and there is no `privileged` mode.
 
 ## Settings persistence
 

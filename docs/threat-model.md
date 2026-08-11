@@ -101,7 +101,10 @@ Proposed mitigations:
 - **Default project mounts to `:ro`** where the workflow allows, with `--rw` to
   opt in — most valuable for `--prompt-file` pipeline runs.
 
-Status: **not implemented.**
+Status: **implemented 2026-07-06** (deny-list of system roots, `$HOME`,
+credential dirs and Trigon settings dirs; paths symlink-resolved via `pwd -P`
+before checking; `--allow-unsafe-mount` overrides with a warning). `:ro`
+default mounts remain **proposed**.
 
 ### G2 — Credential exposure via `/settings` (`$HOME`)
 `${CLAUDE_SETTINGS_DIR}:/settings` is the agent's `$HOME` and holds `.claude.json`
@@ -131,7 +134,11 @@ Proposed mitigations:
 - If host networking is unavoidable, warn loudly and block the metadata IP
   (`169.254.169.254`) via an egress rule.
 
-Status: **not implemented** (headless alternative exists).
+Status: **partial 2026-07-06** — `--playwright` now prints a loud host-networking
+warning and, if the metadata service answers a probe, **refuses to launch**
+unless `--allow-metadata` is passed (a host-netns container can't be firewalled
+from an unprivileged launcher, so refusal replaces the egress rule). Blocking
+the IP in the host firewall remains the stronger, user-side control.
 
 ### G4 — `--playwright-headless`: `ipc: host` + `SYS_PTRACE`
 `ipc: host` shares the host SysV/POSIX shared-memory and semaphore namespace —
@@ -181,7 +188,12 @@ Missing across the board:
 surface. Resource limits prevent a fork-bomb / OOM DoS on the host (low-skill,
 high-annoyance attack).
 
-Status: **not implemented.**
+Status: **implemented 2026-07-06** in `compose/base.yml` — `no-new-privileges`,
+`cap_drop: ALL` (security mode adds back `NET_RAW`/`NET_ADMIN`,
+`--playwright-headless` adds `SYS_PTRACE`, `--root` adds the baseline file/uid
+caps dpkg needs), and `pids_limit`/`mem_limit`/`cpus` with `TRIGON_*` env
+overrides (defaults 4096 / 8g / all host cores). Read-only rootfs remains
+**proposed**.
 
 ### G8 — `security` mode `NET_ADMIN`
 `compose/security.yml` adds `NET_RAW` + `NET_ADMIN`. `NET_RAW` (raw sockets for
@@ -228,12 +240,15 @@ because the flags interact (`--yolo` × host-net × broad-mount is the danger zo
 | **trusted** | opt-in escape hatch | re-enables host networking, broad mounts, `--yolo`; requires explicit `--allow-unsafe` ack |
 
 ### Highest-ROI, near-zero-friction wins
-1. **Mount deny-list** (G1)
-2. **`no-new-privileges` + `cap_drop: ALL`** (G7)
-3. **Resource limits** (G7)
-4. **Block the cloud-metadata IP under host networking** (G3)
+1. **Mount deny-list** (G1) — ✅ implemented 2026-07-06
+2. **`no-new-privileges` + `cap_drop: ALL`** (G7) — ✅ implemented 2026-07-06
+3. **Resource limits** (G7) — ✅ implemented 2026-07-06
+4. **Block the cloud-metadata IP under host networking** (G3) — ✅ implemented
+   2026-07-06 as a reachability guard (refuse-to-launch, `--allow-metadata`
+   override) since an unprivileged launcher cannot install an egress rule
 
-These four cut realistic blast radius dramatically without changing any workflow.
+These four cut realistic blast radius dramatically without changing any
+workflow. Covered by `tests/cli/hardening.bats`.
 
 ---
 
@@ -256,15 +271,15 @@ These four cut realistic blast radius dramatically without changing any workflow
 
 | Control | Addresses | Cost | Status |
 |---------|-----------|------|--------|
-| Mount deny-list + symlink resolution | G1 | low | proposed |
+| Mount deny-list + symlink resolution | G1 | low | **implemented** (2026-07-06) |
 | `:ro` project mounts (pipeline) | G1 | medium | proposed |
 | Short-lived keys / scoped settings mount | G2 | low | partial |
-| Prefer headless; block 169.254.169.254 | G3 | low | proposed |
+| Prefer headless; block 169.254.169.254 | G3 | low | **implemented** as reachability guard (2026-07-06) |
 | Private `/dev/shm` instead of `ipc: host` | G4 | low | proposed |
 | Forbid `--yolo` × unsafe combos | G5 | low | proposed |
 | Egress allow-list (M7 `--audit`) | G6 | high | proposed |
-| `no-new-privileges` + `cap_drop: ALL` | G7 | low | proposed |
-| `pids_limit` / `mem_limit` / `cpus` | G7 | low | proposed |
+| `no-new-privileges` + `cap_drop: ALL` | G7 | low | **implemented** (2026-07-06) |
+| `pids_limit` / `mem_limit` / `cpus` | G7 | low | **implemented** (2026-07-06) |
 | Drop `NET_ADMIN` if unused | G8 | low | proposed |
 | Pin agent / base image / checksums | G9 | medium | proposed |
 | Treat repo `.mcp.json` as untrusted | G9 | medium | proposed |

@@ -15,6 +15,33 @@ mktemp_yml() {
   echo "$f.yml"
 }
 
+# ── Mount deny-list (docs/threat-model.md G1) ─────────────────────────────────
+# Prints why a path must not be bind-mounted and returns 0, or returns 1 if the
+# path is fine. Paths arrive here already symlink-resolved (pwd -P), so a
+# symlink inside an allowed directory cannot dodge the check.
+mount_denied_reason() {
+  local p="$1"
+  local home=""
+  [[ -d "${HOME:-}" ]] && home="$(cd "$HOME" && pwd -P)"
+
+  [[ "$p" == "/" ]] && { echo "the filesystem root"; return 0; }
+  [[ "$p" == "/home" || "$p" == "/Users" ]] && { echo "the parent of all home directories"; return 0; }
+  [[ -n "$home" && "$p" == "$home" ]] && { echo "your home directory"; return 0; }
+
+  local d
+  for d in /etc /root /boot /sys /proc /dev /run /var/run /var/lib; do
+    [[ "$p" == "$d" || "$p" == "$d"/* ]] && { echo "system directory $d"; return 0; }
+  done
+
+  if [[ -n "$home" ]]; then
+    for d in .ssh .aws .gnupg .kube .docker .azure .claude .config/gh .config/gcloud; do
+      [[ "$p" == "$home/$d" || "$p" == "$home/$d"/* ]] && { echo "credential directory ~/$d"; return 0; }
+    done
+    [[ "$p" == "$home"/.trigon-settings* ]] && { echo "a Trigon settings directory (holds OAuth tokens)"; return 0; }
+  fi
+  return 1
+}
+
 usage() {
   cat <<'USAGE'
 Usage: trigon-up.sh [PROJECT_PATH ...] [FLAGS]
@@ -70,6 +97,12 @@ API / billing:
 Pipeline:
   --prompt-file PATH    Non-interactive: run the prompt, exit on completion
 
+Safety (see docs/threat-model.md):
+  --allow-unsafe-mount  Override the mount deny-list (/, $HOME, /etc, credential
+                        directories like ~/.ssh, ...) and mount anyway (G1)
+  --allow-metadata      Proceed with --playwright even when the cloud metadata
+                        service (169.254.169.254) is reachable from this host (G3)
+
 Help:
   --dry-run             Resolve provider, assemble compose files and env, print
                         the command that would run, then exit — no container is
@@ -99,7 +132,8 @@ fi
 for i in "${!PROJECT_PATHS[@]}"; do
   path="${PROJECT_PATHS[$i]}"
   [[ ! -d "$path" ]] && { echo "Error: Directory not found: $path" >&2; exit 1; }
-  abs="$(cd "$path" && pwd)"
+  # -P resolves symlinks so the mount deny-list below sees the real target.
+  abs="$(cd "$path" && pwd -P)"
   PROJECT_PATHS[$i]="$abs"
   [[ $i -eq 0 ]] && export PROJECT_ROOT="$abs"
   export "PROJECT_ROOT_$((i+1))"="$abs"
@@ -121,6 +155,8 @@ MAX_BUDGET_USD=""
 MCP_SERVERS=()
 MCP_KEY=""
 DRY_RUN=0
+ALLOW_UNSAFE_MOUNT=0
+ALLOW_METADATA=0
 
 # ── Flag parsing ──────────────────────────────────────────────────────────────
 i=0
@@ -165,11 +201,27 @@ while [[ $i -lt ${#FLAGS[@]} ]]; do
       MCP_KEY="${FLAGS[$i]}" ;;
     --api)         USE_API_KEY=1 ;;
     --air-gap)    AIR_GAP=1 ;;
+    --allow-unsafe-mount) ALLOW_UNSAFE_MOUNT=1 ;;
+    --allow-metadata)     ALLOW_METADATA=1 ;;
     --dry-run)    DRY_RUN=1 ;;
     --security)    MODE="security" ;;  # backward compat alias for --mode security
     *)             echo "Warning: unknown flag '$arg'" >&2 ;;
   esac
   i=$((i+1))
+done
+
+# ── Mount safety (threat model G1) ────────────────────────────────────────────
+for p in "${PROJECT_PATHS[@]}"; do
+  if reason="$(mount_denied_reason "$p")"; then
+    if [[ $ALLOW_UNSAFE_MOUNT -eq 1 ]]; then
+      echo "Warning: mounting $p — $reason (--allow-unsafe-mount)." >&2
+    else
+      echo "Error: refusing to mount $p — $reason." >&2
+      echo "  The agent would get your read/write access to that entire tree" >&2
+      echo "  (docs/threat-model.md G1). Pass --allow-unsafe-mount to override." >&2
+      exit 1
+    fi
+  fi
 done
 
 # ── Validate agent ────────────────────────────────────────────────────────────
@@ -257,6 +309,18 @@ else
   export LOCAL_UID LOCAL_GID
 fi
 
+# ── Runtime hardening defaults (threat model G7) ──────────────────────────────
+# compose/base.yml drops all capabilities, sets no-new-privileges, and applies
+# these resource limits. Override per run via environment, e.g.
+# TRIGON_MEM_LIMIT=16g TRIGON_CPUS=8 ./trigon-up.sh ...
+export TRIGON_PIDS_LIMIT="${TRIGON_PIDS_LIMIT:-4096}"
+export TRIGON_MEM_LIMIT="${TRIGON_MEM_LIMIT:-8g}"
+if [[ -z "${TRIGON_CPUS:-}" ]]; then
+  # Default the CPU cap to all host cores: bounded, but no effective throttle.
+  TRIGON_CPUS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+fi
+export TRIGON_CPUS
+
 # ── Settings directory (persisted across runs, keyed by container name) ───────
 CLAUDE_SETTINGS_DIR="${CLAUDE_SETTINGS_DIR:-$HOME/.trigon-settings${NAME:+-$NAME}}"
 mkdir -p "$CLAUDE_SETTINGS_DIR"
@@ -295,6 +359,30 @@ cleanup() {
   fi
 }
 trap cleanup EXIT INT TERM
+
+# ── --root: restore baseline capabilities (threat model G7) ───────────────────
+# base.yml drops ALL capabilities. The non-root default user needs none of them
+# back, but root mode exists largely to install packages, and dpkg/apt/npm need
+# the classic file-ownership/uid capabilities. Still far below Docker's default set.
+if [[ $ROOT_MODE -eq 1 ]]; then
+  ROOT_COMPOSE="$(mktemp_yml)"
+  TEMP_FILES+=("$ROOT_COMPOSE")
+  cat > "$ROOT_COMPOSE" <<COMPOSE_EOF
+services:
+  ${SERVICE_NAME}:
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - FSETID
+      - KILL
+      - SETGID
+      - SETUID
+      - SETPCAP
+COMPOSE_EOF
+  COMPOSE_FILES+=("-f" "$ROOT_COMPOSE")
+  echo "Root: running as root — baseline file/uid capabilities restored (threat-model G7)"
+fi
 
 # ── Tier-2: LiteLLM sidecar ──────────────────────────────────────────────────
 if [[ "$PROVIDER_TYPE" == "litellm-proxy" ]]; then
@@ -445,6 +533,9 @@ if [[ $PLAYWRIGHT -eq 1 ]]; then
   cp "$MCP_CONFIG" "$CLAUDE_SETTINGS_DIR/config/mcp.json"
   echo "Playwright MCP: config written — connecting to host Chrome on localhost:9222"
   echo "Make sure Chrome is running with: google-chrome --remote-debugging-port=9222"
+  echo "WARNING: --playwright switches the container to HOST networking — the agent" >&2
+  echo "  shares the host's network namespace (localhost services, LAN, cloud metadata)." >&2
+  echo "  Prefer --playwright-headless where possible. See docs/threat-model.md G3." >&2
 
   PLAYWRIGHT_COMPOSE="$(mktemp_yml)"
   TEMP_FILES+=("$PLAYWRIGHT_COMPOSE")
@@ -622,6 +713,34 @@ if [[ "$AGENT" == "claude-code" ]]; then
     echo "Warning: '${NAME}' settings dir has an existing claude.ai session." >&2
     echo "  Injecting an API key alongside an OAuth token causes an auth conflict in Claude Code." >&2
     echo "  Use --name <new-name> to start with a clean settings dir." >&2
+  fi
+fi
+
+# ── Cloud metadata guard (threat model G3) ────────────────────────────────────
+# Host networking (--playwright) shares the host network namespace, so on a
+# cloud VM the instance metadata service — and with it instance credentials —
+# is one HTTP request away from the agent. We can't firewall a host-netns
+# container from here without root, so instead: probe, and refuse to launch if
+# metadata is reachable, unless --allow-metadata. Runs after all other guards.
+# TRIGON_METADATA_PROBE=reachable|unreachable skips the probe (used by tests,
+# or for hosts where the probe is slow).
+if [[ $PLAYWRIGHT -eq 1 && $ALLOW_METADATA -eq 0 ]]; then
+  META_STATE="${TRIGON_METADATA_PROBE:-auto}"
+  if [[ "$META_STATE" == "auto" ]]; then
+    META_STATE="unreachable"
+    if command -v curl >/dev/null 2>&1; then
+      if curl -s -m 1 -o /dev/null "http://169.254.169.254/"; then META_STATE="reachable"; fi
+    elif command -v wget >/dev/null 2>&1; then
+      if wget -q -T 1 -t 1 -O /dev/null "http://169.254.169.254/"; then META_STATE="reachable"; fi
+    fi
+  fi
+  if [[ "$META_STATE" == "reachable" ]]; then
+    echo "Error: the cloud metadata service (169.254.169.254) is reachable from this" >&2
+    echo "  host, and --playwright would share the host network with the agent —" >&2
+    echo "  instance credentials would be one HTTP request away (threat-model G3)." >&2
+    echo "  Prefer --playwright-headless (bridge networking), or block the metadata IP" >&2
+    echo "  in the host firewall, or pass --allow-metadata to proceed anyway." >&2
+    exit 1
   fi
 fi
 
