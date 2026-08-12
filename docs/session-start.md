@@ -33,7 +33,40 @@ var injection in the launch script.
 
 ---
 
-## Current state (as of 2026-07-06)
+## Current state (as of 2026-08-12)
+
+### Recent changes (2026-08-12) — M7 `--audit` AI-DLC cycle in progress
+
+- **A full-ceremony AI-DLC cycle for the `--audit` feature is underway** on branch
+  `feature/audit-inception` (uncommitted). All artifacts live under **`docs/audit/`**
+  (not the default `aidlc-docs/`). To resume, read in this order:
+  1. `docs/audit/aidlc-state.md` — **the resume point** (state, next action, locked decisions)
+  2. `docs/audit/audit.md` — full timestamped audit trail of the cycle
+  3. `docs/audit/inception/requirements/requirements.md` — the agreed requirements
+  4. `docs/audit/inception/reverse-engineering/` — scoped RE artifacts
+- **Where it's paused:** Inception → Requirements Analysis is complete; waiting at
+  the **requirements approval gate**. Next: on approval, run **Workflow Planning**.
+  Scope is **full implementation** (through Construction), producing `docs/audit-design.md`
+  then code in `trigon-up.sh` + tests.
+- **Key locked decisions:** enforced (unbypassable) gateway reusing the `--air-gap`
+  internal-network topology; **destination-only logging by default** with an
+  `--audit-decrypt` opt-in; completeness is a hard guarantee but decryption is
+  cooperative/soft (do not call `--audit-decrypt` unbypassable); refuse `--audit`
+  + `--playwright`; opt-in only; G6 allow-list enforcement deferred. VibePod
+  verified as a cooperative + always-decrypt dev tool → Trigon is the inverse
+  (enforced + destination-only = compliance artifact).
+
+### Recent changes (2026-08-11)
+
+- **Security-hardening branch concluded (parked).** The four quick-win controls
+  (G1 mount deny-list, G7 runtime hardening + resource limits, G3 metadata guard)
+  are merged to `master` (PR #3, `17b0b23`). **Still outstanding — deliberately
+  parked** (no Docker in dev sessions): live-container verification of a real
+  `--playwright-headless` run under `no-new-privileges`/`cap_drop: ALL`, and a
+  `--root` run confirming `apt-get` works with the restored cap set. Remaining
+  threat-model gaps (G4, G5, G8, G9, and `:ro` project mounts) stay proposed.
+- **Focus shifted to M7 — the `--audit` network audit log** (with its G6 egress
+  allow-list sibling). Entering an AI-DLC inception cycle for this feature.
 
 ### Recent changes (2026-07-06)
 

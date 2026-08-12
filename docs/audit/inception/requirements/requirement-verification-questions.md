@@ -1,0 +1,153 @@
+# Requirements Clarification Questions — M7 `--audit`
+
+Please answer each question by filling in the letter after the `[Answer]:` tag.
+If none of the options fit, choose the **Other** option and describe after the tag.
+Short recommendations are noted where I have a view — override freely.
+
+---
+
+## Question 1 — Primary purpose / scope of `--audit`
+What should `--audit` actually *do*?
+
+A) **Observe-only** — log every outbound request + write a session-end summary; never block anything (this is the M7 spec as written in the roadmap).
+
+B) **Observe + enforce** — also apply a G6 egress allow-list that *blocks* non-allowed destinations, not just records them.
+
+C) **Phased** — observe-only in this cycle; allow-list enforcement (G6) as a clearly-scoped later follow-up. *(recommended: keeps the flagship `--air-gap --audit` proof shippable without the harder enforcement design)*
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: A
+
+---
+
+## Question 2 — Interception technology (drives how rich the log can be vs. privacy/complexity)
+How should traffic be observed? This decides what the log *can* contain.
+
+A) **Forward proxy with TLS interception** (e.g. mitmproxy) — richest log: full host, path, method, byte counts. Cost: must inject a CA into the container's trust store; can break cert-pinned clients; the proxy sees decrypted content.
+
+B) **Forward proxy, CONNECT/SNI only, no decryption** — logs destination host + byte volume, not URL paths. No CA injection; nothing decrypted. *(recommended: matches the "compliance artifact" framing — proves where traffic went without reading it)*
+
+C) **L3/L4 + DNS logging** (iptables/nftables + DNS capture) — destination IP/host + volume; needs `NET_ADMIN`; no application-level detail.
+
+D) **Defer to Application Design** — capture the tradeoff in the design doc and choose there.
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: A
+
+---
+
+## Question 3 — Host networking (`--playwright`) handling
+`--playwright` puts the agent in the host network namespace, which a compose-level proxy cannot observe (the G3 blind spot). When `--audit` is combined with `--playwright`:
+
+A) **Refuse** — error out, same pattern as `--air-gap` × `--playwright` today. *(recommended: audit that silently misses traffic is worse than no audit)*
+
+B) **Auto-downgrade** to `--playwright-headless` (stays namespaced and auditable).
+
+C) **Warn + proceed**, writing an explicit "coverage gap" marker into the audit log.
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: A
+
+---
+
+## Question 4 — Log format & location
+How and where should the audit output land?
+
+A) **JSON Lines** in `audit-log/` inside the mounted project dir, plus a human-readable session summary.
+
+B) **CSV** in `audit-log/`, plus a summary.
+
+C) **Both** — machine-readable JSONL *and* a rendered Markdown summary report in `audit-log/`. *(recommended: JSONL for tooling, Markdown so a DPO can read it)*
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: A
+
+---
+
+## Question 5 — Egress allow-list source (only bites if enforcing; see Q1)
+If/when `--audit` enforces an allow-list, where does the list come from?
+
+A) **Auto-derived** from context — provider API host + configured git remote + built-in essentials.
+
+B) **User-supplied file** (e.g. `--audit-allow FILE`).
+
+C) **Both** — auto-derived defaults, extendable by a user file.
+
+D) **N/A this cycle** — observe-only (consistent with Q1=A or Q1=C).
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: D
+
+---
+
+## Question 6 — Default posture
+When is auditing active?
+
+A) **Strictly opt-in** via `--audit` (default off).
+
+B) **Opt-in, but non-interactive `--prompt-file` runs default to audited** — ties to the threat-model "strict profile" idea (no human is watching a pipeline run).
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: A
+
+---
+
+## Question 7 — Deliverable scope for THIS AI-DLC cycle
+You originally said "prepare to write a new doc." How far should this cycle run?
+
+A) **Design doc only** — run Inception through Application Design, producing `docs/audit-design.md`; stop before writing code. *(recommended given the stated goal; implementation can be its own cycle)*
+
+B) **Full cycle** — Inception → Construction: actually implement `--audit` in `trigon-up.sh` + tests.
+
+C) **Design doc + thin spike** — the doc plus a throwaway prototype to de-risk the proxy topology, but not production code.
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: B
+
+---
+
+## Question 8 — Security extension (opt-in)
+Should security extension rules be enforced for this project?
+
+A) Yes — enforce all SECURITY rules as blocking constraints (recommended for production-grade applications). *(recommended: this is itself a security feature)*
+
+B) No — skip all SECURITY rules (suitable for PoCs, prototypes, and experimental projects).
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: A
+
+---
+
+## Question 9 — Resiliency extension (opt-in)
+Should the resiliency baseline (AWS Well-Architected Reliability pillar, design-time best practices) be applied? Relevant here mainly as: if the audit proxy fails, does the session fail *open* (traffic flows unlogged) or *closed* (session stops)?
+
+A) Yes — apply the resiliency baseline as directional design-time guidance.
+
+B) No — skip it (suitable for a small CLI feature where rapid iteration matters more). *(recommended: overkill for a single sidecar; the fail-open/closed question can be handled directly in the design)*
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: B
+
+---
+
+## Question 10 — Property-based testing extension (opt-in)
+Should property-based testing rules be enforced?
+
+A) Yes — enforce all PBT rules as blocking constraints.
+
+B) Partial — enforce PBT only for pure functions / serialization round-trips (e.g. the audit-log writer/parser). *(recommended: the log schema serializer is a natural PBT target; the rest is shell/compose)*
+
+C) No — skip all PBT rules.
+
+X) Other (please describe after [Answer]: tag below)
+
+[Answer]: B
