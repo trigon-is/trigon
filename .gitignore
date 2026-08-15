@@ -6,6 +6,9 @@
 security-results/
 wordlists/
 
+# --audit network audit log written into the project root
+audit-log/
+
 # Python bytecode cache (e.g. from lib/ helper scripts)
 __pycache__/
 *.pyc

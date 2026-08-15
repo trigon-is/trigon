@@ -89,6 +89,26 @@ Network / browser:
   --air-gap             Block outbound internet from the agent container
                         (requires a local provider, e.g. --provider ollama:MODEL)
 
+Audit (network egress log):
+  --audit               Route ALL agent egress through an enforced audit gateway
+                        (mitmproxy sidecar) and log every destination to
+                        audit-log/. Unbypassable/complete even for a hostile
+                        agent; destination-only depth by default (no decryption).
+                        Opt-in; incompatible with --playwright (host netns).
+  --audit-decrypt       Additionally MITM-decrypt flows whose TLS client trusts
+                        the injected session CA (honest flows) to capture method/
+                        path/status (redacted). Not an anti-exfil control — a
+                        pinned/hostile flow stays opaque but is still logged by
+                        destination. Requires --audit.
+  --audit-decrypt-fail-closed
+                        On decrypt refusal (cert pinning), DROP the flow instead
+                        of passing it through opaque (default is pass-through-SNI,
+                        which keeps the agent working). Requires --audit-decrypt.
+  --audit-allow-degraded
+                        Fail-open: launch even if the audit gateway is unhealthy
+                        (default is fail-closed — no unaudited launch). Requires
+                        --audit.
+
 API / billing:
   --api                 Inject API key for the selected provider (env var from
                         provider YAML, falling back to ~/.{provider}_api_key)
@@ -157,6 +177,10 @@ MCP_KEY=""
 DRY_RUN=0
 ALLOW_UNSAFE_MOUNT=0
 ALLOW_METADATA=0
+AUDIT=0
+AUDIT_DECRYPT=0
+AUDIT_DECRYPT_FAIL_CLOSED=0
+AUDIT_ALLOW_DEGRADED=0
 
 # ── Flag parsing ──────────────────────────────────────────────────────────────
 i=0
@@ -201,6 +225,10 @@ while [[ $i -lt ${#FLAGS[@]} ]]; do
       MCP_KEY="${FLAGS[$i]}" ;;
     --api)         USE_API_KEY=1 ;;
     --air-gap)    AIR_GAP=1 ;;
+    --audit)                      AUDIT=1 ;;
+    --audit-decrypt)              AUDIT_DECRYPT=1 ;;
+    --audit-decrypt-fail-closed)  AUDIT_DECRYPT_FAIL_CLOSED=1 ;;
+    --audit-allow-degraded)       AUDIT_ALLOW_DEGRADED=1 ;;
     --allow-unsafe-mount) ALLOW_UNSAFE_MOUNT=1 ;;
     --allow-metadata)     ALLOW_METADATA=1 ;;
     --dry-run)    DRY_RUN=1 ;;
@@ -348,8 +376,10 @@ fi
 # project root, so we can restore/remove it on exit instead of leaving litter.
 TEMP_FILES=()
 MCP_CONFIG_WRITTEN=""
+AUDIT_WORK_DIR=""   # sidecar-only audit log dir (--audit); removed after finalize
 cleanup() {
   for f in "${TEMP_FILES[@]:-}"; do [[ -f "${f:-}" ]] && rm -f "$f"; done
+  [[ -n "$AUDIT_WORK_DIR" && -d "$AUDIT_WORK_DIR" ]] && rm -rf "$AUDIT_WORK_DIR"
   if [[ -n "$MCP_CONFIG_WRITTEN" ]]; then
     if [[ -f "${MCP_CONFIG_WRITTEN}.backup" ]]; then
       mv "${MCP_CONFIG_WRITTEN}.backup" "$MCP_CONFIG_WRITTEN"
@@ -667,8 +697,15 @@ if [[ $AIR_GAP -eq 1 ]]; then
   AIR_GAP_COMPOSE="$(mktemp_yml)"
   TEMP_FILES+=("$AIR_GAP_COMPOSE")
 
+  # With --audit the agent shares the audit gateway's network namespace
+  # (network_mode: service:audit-gw), so it has no `networks:` of its own —
+  # isolating audit-gw is what severs the agent's egress. Without --audit we
+  # isolate the agent (trigon) service directly.
+  AIRGAP_TARGET="${SERVICE_NAME}"
+  [[ $AUDIT -eq 1 ]] && AIRGAP_TARGET="audit-gw"
+
   if [[ "$PROVIDER_TYPE" == "litellm-proxy" ]]; then
-    # Agent: air_gap only (no internet). LiteLLM: air_gap + default (needs host for Ollama).
+    # Egress owner: air_gap only (no internet). LiteLLM: air_gap + default (needs host for Ollama).
     cat > "$AIR_GAP_COMPOSE" <<COMPOSE_EOF
 networks:
   air_gap:
@@ -676,7 +713,7 @@ networks:
     internal: true
 
 services:
-  ${SERVICE_NAME}:
+  ${AIRGAP_TARGET}:
     networks:
       - air_gap
   litellm:
@@ -692,7 +729,7 @@ networks:
     internal: true
 
 services:
-  ${SERVICE_NAME}:
+  ${AIRGAP_TARGET}:
     networks:
       - air_gap
 COMPOSE_EOF
@@ -700,6 +737,113 @@ COMPOSE_EOF
 
   COMPOSE_FILES+=("-f" "$AIR_GAP_COMPOSE")
   echo "Air-gap: agent container isolated — no outbound internet."
+fi
+
+# ── --audit (network audit log) ───────────────────────────────────────────────
+# Enforced egress gateway: the agent shares the audit-gw netns
+# (network_mode: service:audit-gw), so ALL its outbound traffic is transparently
+# intercepted by mitmproxy in the sidecar and logged — unbypassable even by a
+# hostile agent (completeness). Default depth is destination-only (SNI + bytes);
+# --audit-decrypt adds TLS interception for CA-accepting (honest) flows. See
+# docs/audit-design.md. NET_ADMIN is scoped to the sidecar (NFR-9); the log lives
+# in a sidecar-only dir the agent cannot reach (NFR-4).
+
+# The decrypt/degraded knobs are meaningless without --audit.
+if [[ $AUDIT -eq 0 ]] && \
+   { [[ $AUDIT_DECRYPT -eq 1 ]] || [[ $AUDIT_DECRYPT_FAIL_CLOSED -eq 1 ]] || [[ $AUDIT_ALLOW_DEGRADED -eq 1 ]]; }; then
+  echo "Error: --audit-decrypt / --audit-decrypt-fail-closed / --audit-allow-degraded require --audit." >&2
+  exit 1
+fi
+if [[ $AUDIT_DECRYPT_FAIL_CLOSED -eq 1 && $AUDIT_DECRYPT -eq 0 ]]; then
+  echo "Error: --audit-decrypt-fail-closed requires --audit-decrypt." >&2
+  exit 1
+fi
+
+if [[ $AUDIT -eq 1 ]]; then
+  # FR-7: a host-netns (--playwright) container's traffic cannot be observed by a
+  # compose-level gateway. Refuse rather than silently miss egress.
+  if [[ $PLAYWRIGHT -eq 1 ]]; then
+    echo "Error: --audit and --playwright are incompatible." >&2
+    echo "  --playwright uses network_mode=host, whose egress the audit gateway cannot see." >&2
+    echo "  Use --playwright-headless (stays namespaced, routed through the gateway) instead." >&2
+    exit 1
+  fi
+
+  # Custom image = mitmproxy + iptables (the stock mitmproxy image lacks iptables,
+  # which the transparent gateway needs). Build with ./build.sh --audit-gateway.
+  AUDIT_IMAGE="${TRIGON_AUDIT_IMAGE:-trigon-audit-gw:latest}"
+
+  # Sidecar-only log dir: NOT under the agent's project mount, so the agent
+  # cannot rewrite its own audit trail (NFR-4). Copied into the project's
+  # audit-log/ after the session (see finalize block near launch).
+  AUDIT_WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/trigon-audit.XXXXXX")"
+  mkdir -p "${AUDIT_WORK_DIR}/.mitmproxy"   # bind target for the CA (decrypt path)
+  export AUDIT_WORK_DIR
+  AUDIT_LOG_DEST="${PROJECT_ROOT}/audit-log"
+
+  AUDIT_DEPENDS="service_healthy"
+  [[ $AUDIT_ALLOW_DEGRADED -eq 1 ]] && AUDIT_DEPENDS="service_started"
+
+  AUDIT_COMPOSE="$(mktemp_yml)"
+  TEMP_FILES+=("$AUDIT_COMPOSE")
+  {
+    echo "services:"
+    echo "  ${SERVICE_NAME}:"
+    echo "    network_mode: \"service:audit-gw\""
+    echo "    depends_on:"
+    echo "      audit-gw:"
+    echo "        condition: ${AUDIT_DEPENDS}"
+    echo "  audit-gw:"
+    echo "    image: ${AUDIT_IMAGE}"
+    echo "    user: \"0:0\""
+    echo "    cap_drop:"
+    echo "      - ALL"
+    echo "    cap_add:"
+    echo "      - NET_ADMIN"     # iptables REDIRECT for transparent interception
+    echo "      - DAC_OVERRIDE"  # root writes log/CA into the host-owned bind mount
+    echo "    entrypoint: [\"/bin/sh\", \"/opt/audit/entrypoint.sh\"]"
+    echo "    environment:"
+    echo "      - AUDIT_DECRYPT=${AUDIT_DECRYPT}"
+    echo "      - AUDIT_DECRYPT_FAIL_CLOSED=${AUDIT_DECRYPT_FAIL_CLOSED}"
+    echo "      - AUDIT_LOG_FILE=/audit-log/session.jsonl"
+    echo "    volumes:"
+    echo "      - ${COMPOSE_DIR}/audit/entrypoint.sh:/opt/audit/entrypoint.sh:ro"
+    echo "      - ${COMPOSE_DIR}/audit/audit_addon.py:/opt/audit/audit_addon.py:ro"
+    echo "      - ${AUDIT_WORK_DIR}:/audit-log"
+    # --air-gap makes the air-gap fragment place audit-gw on the internal net
+    # (no egress); otherwise it needs host reachability for host-gateway routes.
+    if [[ $AIR_GAP -ne 1 ]]; then
+      echo "    extra_hosts:"
+      echo "      - \"host.docker.internal:host-gateway\""
+    fi
+    echo "    healthcheck:"
+    echo "      test: [\"CMD-SHELL\", \"python3 -c \\\"import socket; socket.create_connection(('127.0.0.1', 8080), 2).close()\\\"\"]"
+    echo "      interval: 2s"
+    echo "      timeout: 3s"
+    echo "      retries: 30"
+    echo "      start_period: 4s"
+  } > "$AUDIT_COMPOSE"
+  COMPOSE_FILES+=("-f" "$AUDIT_COMPOSE")
+
+  # Decrypt path: trust the per-session CA in the agent (Node/Claude Code reads
+  # NODE_EXTRA_CA_CERTS). The CA dir is mounted read-only; the agent still cannot
+  # see the log itself (that stays in AUDIT_WORK_DIR, not the .mitmproxy subdir).
+  if [[ $AUDIT_DECRYPT -eq 1 ]]; then
+    EXTRA_ARGS+=(-v "${AUDIT_WORK_DIR}/.mitmproxy:/audit-ca:ro")
+    EXTRA_ARGS+=(-e "NODE_EXTRA_CA_CERTS=/audit-ca/mitmproxy-ca-cert.pem")
+  fi
+
+  _audit_depth="destination-only"
+  if [[ $AUDIT_DECRYPT -eq 1 ]]; then
+    if [[ $AUDIT_DECRYPT_FAIL_CLOSED -eq 1 ]]; then
+      _audit_depth="decrypt (fail-closed)"
+    else
+      _audit_depth="decrypt (pass-through-SNI)"
+    fi
+  fi
+  echo "Audit: enforced gateway enabled — depth: ${_audit_depth}; NET_ADMIN scoped to audit-gw."
+  [[ $AUDIT_ALLOW_DEGRADED -eq 1 ]] && echo "Audit: --audit-allow-degraded — will launch even if the gateway is unhealthy (fail-open)."
+  [[ "$PROVIDER_TYPE" == "litellm-proxy" ]] && echo "Audit: note — the agent's egress is audited; the litellm→provider hop is a documented coverage gap (see docs/audit-design.md §3.2)."
 fi
 
 # ── Auth conflict guard (claude-code only) ────────────────────────────────────
@@ -770,6 +914,19 @@ else
   echo "Error: Docker Compose not found." >&2; exit 1
 fi
 
+# ── Audit gateway image preflight (fail closed) ───────────────────────────────
+# The audit gateway needs a purpose-built image (mitmproxy + iptables). If it is
+# missing, refuse rather than let compose try to pull a nonexistent tag and fail
+# mid-launch — and never silently run unaudited (NFR-5).
+if [[ $AUDIT -eq 1 && $DRY_RUN -eq 0 ]]; then
+  if ! docker image inspect "$AUDIT_IMAGE" >/dev/null 2>&1; then
+    echo "Error: audit gateway image '${AUDIT_IMAGE}' not found." >&2
+    echo "  Build it first:  ./build.sh --audit-gateway" >&2
+    echo "  (or set TRIGON_AUDIT_IMAGE to an image with iptables + mitmdump)." >&2
+    exit 1
+  fi
+fi
+
 # ── Launch ────────────────────────────────────────────────────────────────────
 # run_compose runs the assembled command — or, under --dry-run, prints it
 # (shell-quoted) and exits before any container starts.
@@ -812,3 +969,23 @@ else
       "${EXTRA_ARGS[@]}" -it "$SERVICE_NAME"
   fi
 fi
+run_status=$?
+
+# ── --audit finalize: export the sidecar log + write the session summary ──────
+# Runs only after a real session ends (--dry-run exits inside run_compose). The
+# log is copied out of the sidecar-only work dir into the project's audit-log/;
+# an absent log means the gateway saw no egress (zero-egress proof, FR-9).
+if [[ $AUDIT -eq 1 && $DRY_RUN -eq 0 ]]; then
+  mkdir -p "$AUDIT_LOG_DEST"
+  _ats="$(date -u +%Y%m%dT%H%M%SZ)"
+  _ajsonl="${AUDIT_LOG_DEST}/session-${NAME}-${_ats}.jsonl"
+  if [[ -f "${AUDIT_WORK_DIR}/session.jsonl" ]]; then
+    cp "${AUDIT_WORK_DIR}/session.jsonl" "$_ajsonl"
+  else
+    : > "$_ajsonl"
+  fi
+  python3 "${LIB_DIR}/audit_summary.py" "$_ajsonl" "${AUDIT_LOG_DEST}/summary-${NAME}-${_ats}.txt" || true
+  echo "Audit: log + summary written to ${AUDIT_LOG_DEST}"
+fi
+
+exit $run_status

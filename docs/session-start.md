@@ -35,6 +35,36 @@ var injection in the launch script.
 
 ## Current state (as of 2026-08-12)
 
+### Recent changes (2026-08-15) — M7 `--audit` implemented (Construction complete)
+
+- **The full-ceremony AI-DLC cycle for `--audit` ran to Construction.** All four
+  gates approved (Requirements → Workflow Planning → Application Design → start
+  Construction). `--audit` is **code-complete and host-verified** (bash -n,
+  dry-run for every flag/guard/combo, 26 python tests incl. PBT green).
+- **Design deliverable:** `docs/audit-design.md`. Plans + decisions D1–D6 in
+  `docs/audit/inception/plans/`. Resume point + remaining work: **`docs/audit/aidlc-state.md`**.
+- **Mechanism chosen (D1-A):** the agent shares the audit gateway's netns
+  (`network_mode: "service:audit-gw"`); uid-owner iptables REDIRECT in the sidecar
+  captures all agent egress while the agent keeps `cap_drop: ALL` — resolves the
+  route-pinning crux without granting the agent NET_ADMIN.
+- **Files:** `trigon-up.sh` (flags/guards/fragment/finalize/help),
+  `compose/audit/{entrypoint.sh,audit_addon.py}`, `lib/audit_summary.py`,
+  `tests/cli/audit.bats`, `tests/test_audit_summary.py`, README, `.gitignore`.
+- **Live-tested 2026-08-15 (user has Docker); committed on `feature/audit-inception`.**
+  Two live fixes landed: (#1) built a custom gateway image `trigon-audit-gw`
+  (mitmproxy + iptables; stock image lacked iptables → exit 127); (#2) added
+  `DAC_OVERRIDE` to the sidecar caps (cap_drop ALL had blocked root writing the
+  host-owned log mount). Gateway now reaches Healthy and a full session runs.
+- **▶ TWO OPEN ISSUES for next session (see `docs/audit/aidlc-state.md` OPEN ISSUES):**
+  1. **Log records nothing** though egress worked — traffic is bypassing the
+     interception. Prime suspects: iptables `nft`-vs-`legacy` backend mismatch
+     (rules inert), or the addon emitting in `tcp_end` instead of `tls_clienthello`
+     for passed-through flows. Debug with live `docker logs compose-audit-gw-1`.
+  2. **Log lands in the agent-accessible project `audit-log/`** (copied there at
+     session end) — a later agent session could tamper. Move the final artifact
+     outside agent-mounted paths (not `~/.trigon-settings-*` either). Design TBD.
+- Also pending: digest-pin `MITMPROXY_BASE`, run `bats`+shellcheck, then PR.
+
 ### Recent changes (2026-08-12) — M7 `--audit` AI-DLC cycle in progress
 
 - **A full-ceremony AI-DLC cycle for the `--audit` feature is underway** on branch
@@ -258,7 +288,7 @@ Current status summary:
 | M4 | Data mode (LaTeX) | ⏸ Deferred |
 | M5 | OpenCode agent | ✅ Done (basic launch confirmed 2026-06-10, further testing indicated) |
 | M6 | Publication prep | 🔶 In progress (hygiene + docs + CI done; benchmarks + `v0.1.0` tag remain) |
-| M7 | Network audit log (`--audit`) | 🔲 Planned |
+| M7 | Network audit log (`--audit`) | 🔶 Implemented 2026-08-15 (live-container verification parked) |
 
 ---
 

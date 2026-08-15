@@ -8,9 +8,11 @@ MODE="dev"
 PUSH=0
 CLAUDE_VERSION=""
 OPENCODE_VERSION="latest"
+AUDIT_GATEWAY=0
 
 usage() {
   echo "Usage: $0 [--agent claude-code|opencode] [--mode dev|security] [--claude-version VERSION] [--opencode-version VERSION] [--push]" >&2
+  echo "       $0 --audit-gateway [--push]   # build the --audit gateway image (trigon-audit-gw:latest)" >&2
   exit 1
 }
 
@@ -24,12 +26,24 @@ while [[ $# -gt 0 ]]; do
     --claude-version)     shift; CLAUDE_VERSION="${1:-}" ;;
     --opencode-version=*) OPENCODE_VERSION="${1#--opencode-version=}" ;;
     --opencode-version)   shift; OPENCODE_VERSION="${1:-}" ;;
+    --audit-gateway)    AUDIT_GATEWAY=1 ;;
     --push)             PUSH=1 ;;
     --help|-h)          usage ;;
     *)                  echo "Unknown argument: $1" >&2; usage ;;
   esac
   shift
 done
+
+# ── Audit gateway image (independent of agent/mode) ───────────────────────────
+if [[ $AUDIT_GATEWAY -eq 1 ]]; then
+  AUDIT_IMAGE_TAG="trigon-audit-gw:latest"
+  AUDIT_DOCKERFILE="${SCRIPT_DIR}/compose/audit/Dockerfile"
+  echo "Building: ${AUDIT_IMAGE_TAG} (mitmproxy + iptables)"
+  docker build -t "${AUDIT_IMAGE_TAG}" -f "${AUDIT_DOCKERFILE}" "${SCRIPT_DIR}/compose/audit"
+  echo "Done: ${AUDIT_IMAGE_TAG}"
+  [[ $PUSH -eq 1 ]] && docker push "${AUDIT_IMAGE_TAG}"
+  exit 0
+fi
 
 case "$MODE" in
   dev|security) ;;

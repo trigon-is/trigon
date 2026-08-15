@@ -95,6 +95,10 @@ Run `./trigon-up.sh --help` for the full flag reference.
 | `--mcp NAME=URL` | — | Attach an external HTTP MCP server (repeatable). Merged into the project `.mcp.json` and restored on exit; a host-gateway route makes a server on the host reachable at `host.docker.internal`. Coexists with `--playwright`/`--playwright-headless`. See [docs/mcp.md](docs/mcp.md). |
 | `--mcp-key VALUE` | — | Bearer token for `--mcp` servers, sent as `Authorization: Bearer VALUE`. Passed via env so the secret is never written into `.mcp.json`. |
 | `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`); the LiteLLM sidecar retains host access for model calls. Incompatible with `--mcp` (host access is blocked). |
+| `--audit` | off | Route **all** agent egress through an enforced audit gateway and log every destination to `audit-log/`. Unbypassable/complete even for a hostile agent; destination-only depth by default. Opt-in; incompatible with `--playwright`. See [Network audit log](#network-audit-log) |
+| `--audit-decrypt` | off | Additionally MITM-decrypt flows whose TLS client trusts the injected session CA (honest flows) for method/path/status. Not an anti-exfil control. Requires `--audit` |
+| `--audit-decrypt-fail-closed` | off | On decrypt refusal (cert pinning), drop the flow instead of passing it through opaque (default). Requires `--audit-decrypt` |
+| `--audit-allow-degraded` | off | Fail-open: launch even if the audit gateway is unhealthy (default is fail-closed). Requires `--audit` |
 | `--allow-unsafe-mount` | off | Override the mount deny-list and mount a sensitive path (`/`, `$HOME`, `/etc`, `~/.ssh`, …) anyway. See [Security defaults](#security-defaults) |
 | `--allow-metadata` | off | Proceed with `--playwright` even when the cloud metadata service (`169.254.169.254`) is reachable from the host |
 | `--prompt-file PATH` | — | Non-interactive: pass prompt content, run, and exit on completion |
@@ -201,6 +205,54 @@ Trigon treats the container as untrusted (see [docs/threat-model.md](docs/threat
 
 No Docker socket is ever mounted, and there is no `privileged` mode.
 
+---
+
+## Network audit log
+
+`--audit` records **where the agent's traffic went** — a complete, tamper-resistant
+egress log for a container session. It is opt-in and changes nothing for runs that
+don't request it.
+
+```bash
+# Log every outbound destination (SNI/host + bytes), no decryption:
+./trigon-up.sh ~/my-project --audit
+
+# Also capture method/path/status for honest (CA-accepting) flows:
+./trigon-up.sh ~/my-project --audit --audit-decrypt
+```
+
+Two independent guarantees:
+
+- **Completeness (enforced, unbypassable).** The agent is placed on an internal
+  network and shares the audit gateway's namespace, so a mitmproxy sidecar is its
+  *only* route out — every destination is logged even if the agent ignores proxy
+  settings or is actively hostile. `NET_ADMIN` is scoped to the sidecar only; the
+  agent keeps `cap_drop: ALL`.
+- **Depth (opt-in, cooperative).** `--audit-decrypt` MITM-decrypts flows whose TLS
+  client trusts the injected session CA — i.e. *honest* flows — for path/header/
+  status detail (secrets and bodies are never written). A pinned or hostile flow
+  can't be decrypted, but is **still logged by destination**, so completeness holds.
+  `--audit-decrypt` is therefore **not** an anti-exfil control — only completeness
+  (with `--air-gap`, or the future egress allow-list) is.
+
+Output lands in `audit-log/` in the project: a JSON Lines log plus a human-readable
+summary (unique destinations, byte totals, decrypted-vs-metadata counts). The log
+is written by the sidecar in a location the agent cannot reach, so the audited agent
+can't rewrite its own trail. `--audit` fails closed if the gateway can't start
+(`--audit-allow-degraded` opts into fail-open) and refuses to combine with
+`--playwright` (host networking is unobservable). `--air-gap --audit` produces a
+zero-egress proof.
+
+Design and rationale: **[docs/audit-design.md](docs/audit-design.md)** and the
+conceptual primer **[docs/audit-concepts.md](docs/audit-concepts.md)**.
+
+The gateway runs a purpose-built image (mitmproxy + iptables) — build it once with
+`./build.sh --audit-gateway`; `--audit` fails closed if it is missing.
+
+> **Status:** shipped behind `--dry-run`-tested wiring; the enforced-routing and
+> decrypt paths are undergoing live-container verification, consistent with the
+> other runtime-hardening controls.
+
 ## Settings persistence
 
 Each named container (`--name`) gets its own settings directory on the host at `~/.trigon-settings-<name>`. It holds Claude Code's OAuth token, conversation history, and configuration, and persists across container runs — which is what makes login a one-time step per name.
@@ -220,7 +272,7 @@ Trigon is **pre-release (v0.x)**. The core `claude-code + anthropic + dev/securi
 | M4 | Data mode (LaTeX) | ⏸ Deferred |
 | M5 | OpenCode agent | ✅ Basic (further testing in progress) |
 | M6 | Publication prep (docs, CI, benchmarks) | 🔲 In progress |
-| M7 | Network audit log (`--audit`) | 🔲 Planned |
+| M7 | Network audit log (`--audit`) | 🔶 Implemented (live-container verification pending) |
 
 Full detail and gate conditions: [docs/v1_milestones_roadmap.md](docs/v1_milestones_roadmap.md).
 
@@ -266,8 +318,9 @@ trigon/
 │   ├── security.yml              # security mode fragment
 │   ├── litellm.yml               # LiteLLM sidecar reference template
 │   ├── mcp-config-template.json  # Playwright MCP (host Chrome)
-│   └── mcp-config-headless.json  # Playwright MCP (in-container Chromium)
-│   # litellm / playwright / air-gap fragments are generated at runtime
+│   ├── mcp-config-headless.json  # Playwright MCP (in-container Chromium)
+│   └── audit/                    # --audit gateway assets (entrypoint + mitmproxy addon)
+│   # litellm / playwright / air-gap / audit fragments are generated at runtime
 │
 └── docs/
     ├── providers.md
