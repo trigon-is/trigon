@@ -2,12 +2,25 @@ ARG MODE=dev
 
 # ── Base: OS, Node.js, Claude Code CLI ───────────────────────────────────────
 FROM ubuntu:24.04 AS base
+# Base OS dependencies
 RUN apt-get update && apt-get install -y \
-    npm nodejs \
+    ca-certificates \
+    curl \
     python3 python3-pip python3-venv \
-    git curl wget \
+    git wget \
     ripgrep fd-find \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22 LTS.
+# Ubuntu 24.04 ships Node 18, which is too old for current Playwright releases.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh \
+    && bash /tmp/nodesource_setup.sh \
+    && apt-get install -y nodejs \
+    && rm -f /tmp/nodesource_setup.sh \
+    && node --version \
+    && npm --version \
+    && rm -rf /var/lib/apt/lists/*
+
 ARG CLAUDE_VERSION
 RUN if [ -n "${CLAUDE_VERSION}" ]; then \
       npm install -g @anthropic-ai/claude-code@${CLAUDE_VERSION}; \
