@@ -140,6 +140,7 @@ embedded-`lib/*.py` pattern (`parse_provider.py`, `merge_mcp.py`).
   "dst_port": 443,
   "bytes_out": 1234,               // agent→dst
   "bytes_in": 5678,                // dst→agent
+  "error": "…",                    // only on a failed connection attempt (bytes 0)
   // decrypted-only, redacted per NFR-1 (never present in metadata mode):
   "method": "POST",
   "path": "/v1/messages",          // query string tokens stripped (NFR-1)

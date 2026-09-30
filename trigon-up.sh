@@ -976,6 +976,10 @@ run_status=$?
 # log is copied out of the sidecar-only work dir into the project's audit-log/;
 # an absent log means the gateway saw no egress (zero-egress proof, FR-9).
 if [[ $AUDIT -eq 1 && $DRY_RUN -eq 0 ]]; then
+  # Stop the gateway before reading its log: a graceful stop makes the addon
+  # flush connections/attempts still open at session end, and the sidecar must
+  # not outlive the session (its log dir is removed below).
+  "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" rm --stop --force -v audit-gw >/dev/null 2>&1 || true
   mkdir -p "$AUDIT_LOG_DEST"
   _ats="$(date -u +%Y%m%dT%H%M%SZ)"
   _ajsonl="${AUDIT_LOG_DEST}/session-${NAME}-${_ats}.jsonl"

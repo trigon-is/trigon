@@ -4,8 +4,8 @@
 - **Project Type**: Brownfield
 - **Feature**: M7 — `--audit` network audit log (+ G6 egress allow-list)
 - **Start Date**: 2026-08-11T13:36:55Z
-- **Last Updated**: 2026-08-15
-- **Branch**: `feature/audit-inception` (uncommitted working tree)
+- **Last Updated**: 2026-09-30
+- **Branch**: `feature/audit-inception`
 - **Current Stage**: CONSTRUCTION — Code Generation + Build & Test **complete
   (host-verified)**; live-container verification parked (no Docker in dev)
 
@@ -26,19 +26,28 @@ tests incl. PBT all green). **The `--audit` feature is code-complete.**
 - **Now:** gateway reaches **Healthy**, agent runs, session completes, log +
   summary land in the project's `audit-log/`. **BUT two open issues (below).**
 
+**✔ Issue 1 (empty log) — FIXED and live-verified 2026-09-30 (committed):**
+- Root cause was the addon, not iptables: `ignore_connection=True` in
+  `tls_clienthello` makes mitmproxy build `TCPLayer(ignore=True)`, which has no
+  flow, so `tcp_end` never fired. The `nf_tables` REDIRECT worked all along
+  (packet counters rose; agent shares the gateway netns as uid 1000).
+- Fix (`compose/audit/audit_addon.py`): destination-only mode now sets
+  `ignore_hosts=.*` + `show_ignored_hosts=true` (still no decryption, but tcp_*
+  hooks fire); SNI is parsed from the plaintext ClientHello, bytes counted per
+  direction without retaining payload. Failed/hanging connects are tracked via
+  `server_connect*` hooks and logged with an `error` field (schema addition,
+  `docs/audit-design.md` §5.1). `done()` flushes open connections + pending
+  attempts.
+- Fix (`trigon-up.sh` finalize): `compose rm --stop --force -v audit-gw` before
+  copying the log, so the flush happens and the sidecar no longer outlives the
+  session.
+- Live result: real destinations with byte counts, `192.0.2.1` logged as
+  `"unresolved at shutdown"`, no healthcheck noise, no leftover gateway.
+- Caveats: records are written at connection close; plain-HTTP (:80) records
+  carry a bare IP as `dst_host`; mitmproxy hot-reloads the addon if the file is
+  edited mid-session (flushes + loses in-flight SNI).
+
 **▶ OPEN ISSUES — start here next session:**
-1. **Empty log despite working egress (functional bug).** The Claude session
-   reached `api.anthropic.com` (ran 7.5 min) yet the JSONL is empty / summary says
-   "0 outbound requests". Traffic is **bypassing interception**. Hypotheses, in
-   order: (a) **iptables backend mismatch** — Debian `iptables` defaults to the
-   `nft` backend; the REDIRECT rules may be added without error yet be inert, so
-   agent packets egress directly, unlogged (verify with `iptables -t nat -L -v -n`
-   inside the sidecar; consider forcing `iptables-legacy`). (b) **passthrough emits
-   no event** — the addon sets `ignore_connection=True` in `tls_clienthello` but
-   only writes in `tcp_end`, which may not fire for ignored conns; fix = emit the
-   metadata record directly in `tls_clienthello` (SNI is available there).
-   Debug by capturing `docker logs compose-audit-gw-1` **while** traffic flows to
-   see whether mitmproxy sees any connection at all.
 2. **Log lands in the agent-accessible project dir (NFR-4 gap).** Sidecar writes to
    a private `mktemp` dir (tamper-safe during the run), but `trigon-up.sh` copies
    it to `<project>/audit-log/` at session end → a *later* agent session on the
@@ -46,8 +55,17 @@ tests incl. PBT all green). **The `--audit` feature is code-complete.**
    (e.g. `~/.trigon-audit/<name>/`, NOT `~/.trigon-settings-<name>` which is also
    mounted). Open design decision, not yet changed.
 
+**Found while fixing #1 (new, open):**
+- **Coverage gap:** only TCP :80/:443 are redirected. Other TCP ports, UDP (DNS,
+  QUIC) and IPv6 leave unlogged and unblocked — contradicts the "ALL egress"
+  claim in `--help`/README.
+- **Concurrent sessions collide:** every `--audit` session uses the same
+  `compose-audit-gw-1`; a second session recreates it and finalize now removes
+  it. Needs a per-session gateway/project name. One audited session at a time
+  until then.
+
 **Also before merge:**
-3. Verify the remaining M7 gates once #1 is fixed: `--audit-decrypt` doesn't break
+3. Verify the remaining M7 gates (#1 is fixed): `--audit-decrypt` doesn't break
    Claude Code's own provider calls (Node CA trust); `--air-gap --audit`
    zero-egress; `--playwright-headless` egress transits the gateway.
 4. Pin the base image by digest (`MITMPROXY_BASE` in `compose/audit/Dockerfile`, NFR-6).

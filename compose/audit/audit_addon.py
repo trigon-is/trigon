@@ -4,9 +4,12 @@ Runs inside the `audit-gw` sidecar (see docs/audit-design.md §4 C2). Emits one
 JSON Lines record per observed connection/flow to $AUDIT_LOG_FILE.
 
 Two depth modes, selected by $AUDIT_DECRYPT:
-  - "0" (default, destination-only): every TLS flow is *passed through* opaque —
-    we read the SNI from the ClientHello and mark the connection ignored, so
-    mitmproxy never decrypts. Record `mode="metadata"` (host/port + bytes only).
+  - "0" (default, destination-only): every connection is *passed through* opaque
+    (`ignore_hosts=.*`), so mitmproxy never decrypts. `show_ignored_hosts` keeps
+    the relayed stream visible as a raw TCP flow — without it mitmproxy fires no
+    hooks at all for ignored connections and nothing would be logged. We read
+    the SNI from the still-plaintext ClientHello and count bytes per direction.
+    Record `mode="metadata"` (host/port + bytes only).
   - "1" (--audit-decrypt): flows whose client trusts the session CA are
     intercepted; record `mode="decrypted"` adds method / redacted path / status.
     Flows that refuse the MITM (cert pinning) fall to the decrypt-failure policy:
@@ -20,24 +23,28 @@ path is stored with its query string stripped.
 The sidecar runs as uid 0 with cap_drop:ALL + NET_ADMIN + DAC_OVERRIDE; the
 DAC_OVERRIDE is what lets root write this log/CA into the host-owned bind mount.
 
-NOTE: byte-accurate accounting and the pass-through-on-pinning path are
-best-effort and pending live-container verification (no Docker in dev sessions,
+NOTE: the pass-through-on-pinning path (decrypt mode) is best-effort and
+pending live-container verification (no Docker in dev sessions,
 consistent with the parked security-hardening controls). The record *schema*
 (v1) is the stable contract that `lib/audit_summary.py` and the tests depend on.
 """
 from __future__ import annotations  # defer annotations so the module imports
 
+import ipaddress
 import json
 import os
 import threading
 import time
 
 try:  # mitmproxy is only present inside the sidecar; guarded so host tests can
-    from mitmproxy import ctx, http, tcp, tls  # import the pure helpers below.
+    from mitmproxy import ctx, http, tcp  # import the pure helpers below.
+    from mitmproxy.proxy.layers.tls import parse_client_hello
 except ImportError:  # pragma: no cover
-    ctx = http = tcp = tls = None  # type: ignore
+    ctx = http = tcp = parse_client_hello = None  # type: ignore
 
 SCHEMA_VERSION = 1
+# Stop looking for a ClientHello after this many client bytes (not TLS, or junk).
+MAX_HELLO_BYTES = 16384
 
 
 def _iso_now() -> str:
@@ -57,11 +64,17 @@ class AuditLogger:
         self.fail_closed = os.environ.get("AUDIT_DECRYPT_FAIL_CLOSED", "0") == "1"
         self._lock = threading.Lock()
         self._fh = None
-        # SNI observed per client connection id, for attributing metadata records.
-        self._sni = {}
+        # Per raw-TCP flow id: SNI + running byte counts (contents are dropped).
+        self._conns = {}
+        # Upstream connects started but not yet established/failed, by server id.
+        self._pending = {}
 
     # ── lifecycle ────────────────────────────────────────────────────────────
     def running(self) -> None:
+        if not self.decrypt:
+            # Destination-only: tunnel everything opaque, but keep the flows
+            # observable (tcp_* hooks) so each connection is still logged.
+            ctx.options.update(ignore_hosts=[".*"], show_ignored_hosts=True)
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         # Line-buffered append so records survive an abrupt container stop.
         self._fh = open(self.log_path, "a", buffering=1, encoding="utf-8")
@@ -72,6 +85,11 @@ class AuditLogger:
 
     def done(self) -> None:
         if self._fh:
+            # Connections still open at shutdown would otherwise go unrecorded.
+            for state in list(self._conns.values()):
+                self._emit_tcp(state["flow"])
+            for server in list(self._pending.values()):
+                self._emit_attempt(server, "unresolved at shutdown")
             self._fh.flush()
             self._fh.close()
 
@@ -80,17 +98,6 @@ class AuditLogger:
         line = json.dumps(record, separators=(",", ":"), sort_keys=True)
         with self._lock:
             self._fh.write(line + "\n")
-
-    # ── TLS: capture SNI; passthrough unless decrypting ──────────────────────
-    def tls_clienthello(self, data: tls.ClientHelloData) -> None:
-        sni = data.client_hello.sni or ""
-        try:
-            self._sni[id(data.context.client)] = sni
-        except Exception:
-            pass
-        if not self.decrypt:
-            # Destination-only: do not decrypt, tunnel opaque (still logged).
-            data.ignore_connection = True
 
     # ── intercepted HTTP (decrypt path only) ─────────────────────────────────
     def response(self, flow: http.HTTPFlow) -> None:
@@ -124,20 +131,95 @@ class AuditLogger:
             "bytes_in": 0,
         })
 
-    # ── passthrough / raw TCP (destination-only, or pinned decrypt flows) ─────
-    def tcp_end(self, flow: tcp.TCPFlow) -> None:
+    # ── passthrough / raw TCP (destination-only, or non-HTTP decrypt flows) ───
+    def _state(self, flow: tcp.TCPFlow) -> dict:
+        return self._conns.setdefault(flow.id, {
+            "flow": flow, "sni": "", "hello": b"", "out": 0, "in": 0,
+        })
+
+    def tcp_start(self, flow: tcp.TCPFlow) -> None:
+        self._state(flow)
+
+    def tcp_message(self, flow: tcp.TCPFlow) -> None:
+        state = self._state(flow)
+        msg = flow.messages[-1]
+        if msg.from_client:
+            state["out"] += len(msg.content)
+            if state["hello"] is not None:
+                # The ClientHello is plaintext even when we do not decrypt.
+                state["hello"] += msg.content
+                try:
+                    hello = parse_client_hello(state["hello"])
+                except ValueError:
+                    hello, state["hello"] = None, None   # not TLS
+                if hello is not None:
+                    state["sni"], state["hello"] = hello.sni or "", None
+                elif state["hello"] and len(state["hello"]) > MAX_HELLO_BYTES:
+                    state["hello"] = None
+        else:
+            state["in"] += len(msg.content)
+        # Counted; do not accumulate the relayed payload (memory + NFR-1). The
+        # newest message stays: mitmproxy's own dumper reads messages[-1].
+        del flow.messages[:-1]
+
+    def _emit_tcp(self, flow: tcp.TCPFlow) -> None:
+        state = self._conns.pop(flow.id, None)
+        if state is None:
+            return
         addr = flow.server_conn.address or ("", 0)
-        sni = self._sni.pop(id(flow.client_conn), "")
-        bytes_out = sum(len(m.content) for m in flow.messages if m.from_client)
-        bytes_in = sum(len(m.content) for m in flow.messages if not m.from_client)
+        peer = flow.server_conn.peername
         self._emit({
             "ts": _iso_now(),
             "mode": "metadata",
-            "dst_host": sni or (addr[0] if addr else ""),
-            "dst_ip": flow.server_conn.peername[0] if flow.server_conn.peername else "",
-            "dst_port": addr[1] if addr else 0,
-            "bytes_out": bytes_out,
-            "bytes_in": bytes_in,
+            "dst_host": state["sni"] or flow.client_conn.sni or addr[0] or "",
+            "dst_ip": peer[0] if peer else "",
+            "dst_port": addr[1],
+            "bytes_out": state["out"],
+            "bytes_in": state["in"],
+        })
+
+    def tcp_end(self, flow: tcp.TCPFlow) -> None:
+        self._emit_tcp(flow)
+
+    def tcp_error(self, flow: tcp.TCPFlow) -> None:
+        # Only raised for a failed upstream connect — server_connect_error logs it.
+        self._conns.pop(flow.id, None)
+
+    # ── failed connection attempts (both modes) ──────────────────────────────
+    # No flow exists when the upstream connect fails — or is still hanging when
+    # the session ends — but the attempt is still egress: record where it was
+    # headed. Attempts are tracked from the moment mitmproxy starts connecting.
+    def server_connect(self, data) -> None:
+        if data.server.error:
+            # Refused by mitmproxy before any packet left (its self-connect
+            # guard, e.g. the healthcheck probing the listener): not egress.
+            return
+        self._pending[data.server.id] = data.server
+
+    def server_connected(self, data) -> None:
+        self._pending.pop(data.server.id, None)   # the flow hooks log it
+
+    def server_connect_error(self, data) -> None:
+        self._emit_attempt(data.server, data.server.error or "connect failed")
+
+    def _emit_attempt(self, server, error: str) -> None:
+        if self._pending.pop(server.id, None) is None:
+            return
+        addr = server.address or ("", 0)
+        try:
+            ipaddress.ip_address(addr[0])
+            dst_ip = addr[0]
+        except ValueError:
+            dst_ip = ""
+        self._emit({
+            "ts": _iso_now(),
+            "mode": "metadata",
+            "dst_host": server.sni or addr[0] or "",
+            "dst_ip": dst_ip,
+            "dst_port": addr[1],
+            "bytes_out": 0,
+            "bytes_in": 0,
+            "error": error,
         })
 
 

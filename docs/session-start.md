@@ -33,7 +33,17 @@ var injection in the launch script.
 
 ---
 
-## Current state (as of 2026-08-12)
+## Current state (as of 2026-09-30)
+
+### Recent changes (2026-09-30) — M7 `--audit` empty-log bug fixed
+
+- **Open issue 1 (log records nothing) is fixed and live-verified** (committed
+  on `feature/audit-inception`): the addon never logged passed-through
+  connections; iptables was fine. Details, caveats and two newly found gaps
+  (ports other than 80/443 + UDP/IPv6 unlogged; concurrent `--audit` sessions
+  share one gateway) are in `docs/audit/aidlc-state.md`.
+- **Still open:** issue 2 (log lands in the agent-accessible `audit-log/`), the
+  remaining M7 gates, digest pin, bats + shellcheck, PR.
 
 ### Recent changes (2026-08-15) — M7 `--audit` implemented (Construction complete)
 
