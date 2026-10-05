@@ -33,7 +33,19 @@ var injection in the launch script.
 
 ---
 
-## Current state (as of 2026-09-30)
+## Current state (as of 2026-10-05)
+
+### Recent changes (2026-10-05) — M7 `--audit` completion plan agreed
+
+- **▶ Next session: start Batch 1 of the plan in `docs/audit/aidlc-state.md`
+  ("COMPLETION PLAN").** Four batches: (1) `--audit`+`--root` guard (new hole:
+  a root agent bypasses the redirect), per-session compose project name
+  (concurrency), log moved to `~/.local/state/trigon/audit/<project>/` with a
+  hash chain (issue 2, D7); (2) all-TCP redirect + REJECT everything else
+  (UDP/QUIC/ICMP) + IPv6 off; (3) DNS logging (currently an unlogged channel);
+  (4) live gates, digest pin, bats + shellcheck, PR.
+- Decisions approved: log location (D7); blocking UDP/QUIC under `--audit`
+  (Claude Code/OpenCode are TCP-only; Chromium falls back to TCP).
 
 ### Recent changes (2026-09-30) — M7 `--audit` empty-log bug fixed
 

@@ -160,3 +160,11 @@ is captured verbatim, never summarized.
 **Context**: CONSTRUCTION — gateway functional; interception-capture + log-location issues deferred to next session. State recorded; branch committed.
 
 ---
+
+## Construction — Completion plan for the remaining work
+**Timestamp**: 2026-10-05
+**User Input**: Asked for an assessment of what remains (full port coverage, issue 2 log location, concurrent sessions), its feasibility and difficulty, aiming for a meritorious completion of the feature. Approved the proposed log location; asked whether blocking UDP/QUIC would hurt agent harnesses; asked to record the plan for the next session.
+**AI Response**: Found a new hole: `--audit` + `--root` runs the agent as uid 0, which the gateway's uid-0 RETURN rule exempts, so a root agent's egress is never redirected or logged. Traced the concurrency collision to `trigon-up.sh` never passing a compose project name. Identified DNS (Docker's embedded resolver at 127.0.0.11) as an unlogged egress channel. Answered on UDP/QUIC: Claude Code (Node) and OpenCode (Bun) don't use HTTP/3; Chromium falls back to TCP; so REJECT-by-default is safe, apart from UDP tools by design. Recorded the four-batch completion plan and decision D7 (log at `${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project>/`, mount deny-listed, records hash-chained) in `aidlc-state.md`. No code changed.
+**Context**: CONSTRUCTION — plan agreed; next session starts Batch 1.
+
+---
