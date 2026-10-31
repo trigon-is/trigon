@@ -33,7 +33,26 @@ var injection in the launch script.
 
 ---
 
-## Current state (as of 2026-10-05)
+## Current state (as of 2026-10-31)
+
+### Recent changes (2026-10-31) — M7 `--audit` Batch 1 done (not live-verified)
+
+- **▶ Next session: run the Batch 1 host smoke checklist** (in
+  `docs/audit/aidlc-state.md` and the 2026-10-31 entry of `docs/audit/audit.md`),
+  then start **Batch 2** (all-TCP redirect, REJECT other egress, IPv6 off).
+- Three commits on `feature/audit-inception`:
+  1a. `--audit` is refused with `--root` and when the host uid is 0, because the
+      gateway exempts uid 0 from interception.
+  1b. Every compose call now carries `-p trigon-<name>-<6 hex>`, and
+      `compose down` runs at exit. Finalize moved into `cleanup`, which fixes
+      log loss on a non-zero session exit.
+  1c. D7: logs go to `${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project>/`
+      (`TRIGON_AUDIT_DIR` overrides the root), which is on the G1 deny-list,
+      ancestors included. Dir is 0700, files 0444. Schema v2 adds a sha256
+      hash chain; the head is printed at session end, and
+      `lib/audit_summary.py --verify LOG [HEAD]` re-checks a log
+      (design §5.4 states what the chain does and doesn't prove).
+
 
 ### Recent changes (2026-10-05) — M7 `--audit` completion plan agreed
 

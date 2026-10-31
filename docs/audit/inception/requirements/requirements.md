@@ -17,7 +17,7 @@
 | 2a (completeness) | **Enforced gateway** — agent has no direct route out; the audit sidecar is its only path to the internet (reuses the `--air-gap` internal-network + dual-homed-sidecar pattern) | Capture is **unbypassable** and cooperation-independent, even for a hostile agent; removes the old "not a complete proof" caveat. Cost: sidecar needs routing/NAT (likely `NET_ADMIN`, scoped to the sidecar only — see NFR-9) |
 | 2b (depth) | **Destination-only by default** (SNI/host + bytes, no decryption); **`--audit-decrypt` opt-in** for full path/header/body visibility (mitmproxy MitM + injected CA) | Default proves *where* traffic went without reading content (compliance-friendly, no PII exposure); decrypt available when richer detail is worth the CA-injection + cert-pinning risk |
 | 3 | **Refuse** `--audit` + `--playwright` | Launch-time guard (not runtime blocking); avoids the host-netns blind spot |
-| 4 | **JSON Lines** in `audit-log/` + human-readable session summary | Machine log + DPO-readable summary |
+| 4 | **JSON Lines** + human-readable session summary, stored outside the project (D7, revised 2026-10-05: `${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project>/`; originally `audit-log/` in the project) | Machine log + DPO-readable summary |
 | 5 | **N/A this cycle** — allow-list deferred | G6 enforcement is a later cycle |
 | 6 | **Strictly opt-in** (`--audit`, default off) | No implicit behavior change to existing runs |
 | 7 | **Full cycle** — implement in `trigon-up.sh` + tests | This AI-DLC cycle runs through Construction (code), not just the design doc |
@@ -59,7 +59,12 @@
   decrypted.
 - **FR-5 — Session summary.** At session end, a human-readable summary
   (unique destinations, request counts, total bytes, first/last timestamps) is
-  written alongside the JSONL log in `audit-log/` in the mounted project dir.
+  written alongside the JSONL log in the per-project audit directory
+  `${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project-slug>/` (root
+  overridable via `TRIGON_AUDIT_DIR`). That directory is on the host, outside
+  every path an agent container can mount (D7, revised 2026-10-05). Previously
+  the log went to `audit-log/` in the mounted project dir, where a later
+  session's agent could edit it.
 - **FR-6 — Observe-only.** The proxy records but never blocks a request based on
   destination (allow-list enforcement is explicitly out of scope, Q1=A/Q5=D).
 - **FR-7 — Host-networking guard.** `--audit` + `--playwright` **refuses to
@@ -97,6 +102,10 @@
   able to silently rewrite its own audit trail. The log is written by the proxy
   sidecar (not the agent); the design SHOULD place/own the log so the agent
   container cannot freely modify prior records (e.g. sidecar-owned path/volume).
+  *Realized by D7 (2026-10-05):* the finished log lives in a host directory on
+  the mount deny-list (mode 0700, files 0444). Its records are hash-chained, so
+  a later edit, deletion or reordering is detectable against the chain head
+  printed at session end (`docs/audit-design.md` §5.4).
 - **NFR-5 — Failure behavior (fail-closed default).** If the proxy fails to
   start, `--audit` MUST fail closed — the session does not launch unaudited by
   surprise. A documented `--audit-allow-degraded` (or equivalent) may opt into

@@ -95,7 +95,7 @@ Run `./trigon-up.sh --help` for the full flag reference.
 | `--mcp NAME=URL` | — | Attach an external HTTP MCP server (repeatable). Merged into the project `.mcp.json` and restored on exit; a host-gateway route makes a server on the host reachable at `host.docker.internal`. Coexists with `--playwright`/`--playwright-headless`. See [docs/mcp.md](docs/mcp.md). |
 | `--mcp-key VALUE` | — | Bearer token for `--mcp` servers, sent as `Authorization: Bearer VALUE`. Passed via env so the secret is never written into `.mcp.json`. |
 | `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`); the LiteLLM sidecar retains host access for model calls. Incompatible with `--mcp` (host access is blocked). |
-| `--audit` | off | Route **all** agent egress through an enforced audit gateway and log every destination to `audit-log/`. Unbypassable/complete even for a hostile agent; destination-only depth by default. Opt-in; incompatible with `--playwright`. See [Network audit log](#network-audit-log) |
+| `--audit` | off | Route **all** agent egress through an enforced audit gateway and log every destination to `~/.local/state/trigon/audit/<project>/` (hash-chained, outside the project). Unbypassable/complete even for a hostile agent; destination-only depth by default. Opt-in; incompatible with `--playwright` and `--root`, and refused when run as root. See [Network audit log](#network-audit-log) |
 | `--audit-decrypt` | off | Additionally MITM-decrypt flows whose TLS client trusts the injected session CA (honest flows) for method/path/status. Not an anti-exfil control. Requires `--audit` |
 | `--audit-decrypt-fail-closed` | off | On decrypt refusal (cert pinning), drop the flow instead of passing it through opaque (default). Requires `--audit-decrypt` |
 | `--audit-allow-degraded` | off | Fail-open: launch even if the audit gateway is unhealthy (default is fail-closed). Requires `--audit` |
@@ -235,13 +235,32 @@ Two independent guarantees:
   `--audit-decrypt` is therefore **not** an anti-exfil control — only completeness
   (with `--air-gap`, or the future egress allow-list) is.
 
-Output lands in `audit-log/` in the project: a JSON Lines log plus a human-readable
-summary (unique destinations, byte totals, decrypted-vs-metadata counts). The log
-is written by the sidecar in a location the agent cannot reach, so the audited agent
-can't rewrite its own trail. `--audit` fails closed if the gateway can't start
-(`--audit-allow-degraded` opts into fail-open) and refuses to combine with
-`--playwright` (host networking is unobservable). `--air-gap --audit` produces a
-zero-egress proof.
+Output lands **outside the project**, in
+`${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project>/` (set `TRIGON_AUDIT_DIR`
+to move the root). It holds a JSON Lines log plus a human-readable summary
+(hash-chain status, unique destinations, byte totals, decrypted-vs-metadata
+counts). During the session the sidecar writes the log where the agent cannot
+reach it. Afterwards it sits in a directory on the mount deny-list (directory
+0700, files 0444), so no later session's agent can mount it either.
+
+Every record carries the sha256 of the line before it, and at session end Trigon
+prints the chain's **head hash**. Keep that hash somewhere outside the audit
+directory; you can then check later that the log is unchanged:
+
+```bash
+python3 lib/audit_summary.py --verify ~/.local/state/trigon/audit/<project>/session-….jsonl <head>
+```
+
+The chain alone catches edits, deletions and reordering. Lines cut off the end,
+or a log rewritten wholesale, are caught only against the recorded head. The
+chain is tamper-evident, not a signature (see
+[design §5.4](docs/audit-design.md)).
+
+`--audit` fails closed if the gateway can't start (`--audit-allow-degraded` opts
+into fail-open). It refuses to combine with `--playwright` (host networking is
+unobservable) or `--root`, and refuses to run as the root user: the gateway
+exempts uid 0 from interception, so a root agent would go unlogged.
+`--air-gap --audit` produces a zero-egress proof.
 
 Design and rationale: **[docs/audit-design.md](docs/audit-design.md)** and the
 conceptual primer **[docs/audit-concepts.md](docs/audit-concepts.md)**.

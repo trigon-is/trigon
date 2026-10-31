@@ -6,7 +6,9 @@
 security-results/
 wordlists/
 
-# --audit network audit log written into the project root
+# --audit wrote its log into the project root until 2026-10; it now goes to
+# ${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project>/ (decision D7).
+# Kept so logs from older sessions don't get committed.
 audit-log/
 
 # Python bytecode cache (e.g. from lib/ helper scripts)

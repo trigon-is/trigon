@@ -47,13 +47,28 @@ tests incl. PBT all green). **The `--audit` feature is code-complete.**
   carry a bare IP as `dst_host`; mitmproxy hot-reloads the addon if the file is
   edited mid-session (flushes + loses in-flight SNI).
 
-**▶ COMPLETION PLAN (agreed 2026-10-05) — start here next session at Batch 1.**
+**▶ COMPLETION PLAN (agreed 2026-10-05). Batch 1 code-complete 2026-10-31; next:
+the Batch 1 host smoke run (below), then Batch 2.**
 Goal: make "ALL agent egress is logged or blocked" literally true, fix the log
 location (issue 2) and support concurrent sessions. Batches in order:
 
 **Batch 1 — one quick session, low risk (no Docker needed except a final smoke run):**
-- **Progress (2026-10-31):** 1a ✔ committed (guard + 3 bats cases). 1b ✔ committed
-  (`-p` on every compose call, `down` at exit, finalize moved into `cleanup`).
+- **Progress (2026-10-31):** 1a ✔, 1b ✔, 1c ✔ — committed, host-verified
+  (56/56 bats incl. stub-`docker` finalize/teardown cases, 38 python tests incl.
+  chain PBT, shellcheck clean apart from the pre-existing SC2004 at the
+  `PROJECT_PATHS[$i]` line). **Not live-verified** (no Docker in dev). Extras
+  found and fixed on the way: a non-zero session exit skipped finalize and
+  `cleanup` deleted the unexported log (1b); INT/TERM resumed the script after
+  cleanup (1b). Note: two concurrent sessions still need distinct `--name`s
+  (fixed container name), which docker rejects loudly rather than colliding.
+- **Batch 1 host smoke run (for the user):** (1) `--audit --root` and
+  `sudo … --audit` refuse with exit 1; (2) two concurrent `--audit --prompt-file`
+  sessions with different `--name`s → two `trigon-<name>-<hex>` projects in
+  `docker compose ls`, two distinct `…-audit-gw-1` containers, none left after
+  exit; (3) logs in `~/.local/state/trigon/audit/<project>-<cksum>/`, dir 0700,
+  files 0444, no `audit-log/` in the project, and `lib/audit_summary.py --verify
+  LOG <printed head>` → verified; an edited copy → BROKEN. Exact commands are in
+  `audit.md` (2026-10-31 1c entry).
 - **1a. `--audit` + `--root` guard (NEW HOLE, found 2026-10-05).** `entrypoint.sh`
   RETURNs uid 0 so mitmproxy's own upstream isn't looped back; with `--root` the
   agent *is* uid 0 (`LOCAL_UID=0`), so none of its egress is redirected/logged.

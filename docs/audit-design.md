@@ -31,7 +31,8 @@ decryption) — a compliance artifact with minimal PII surface.
 |---|----------|-----------------|
 | D1 | **Transparent gateway** (A): agent on `internal` net, mitmproxy sidecar dual-homed with `NET_ADMIN`, iptables REDIRECT, is the agent's route out. Logs all destinations incl. hostile. **Fallback (B):** internal-net + explicit `HTTP(S)_PROXY` (drop-by-default) if A is infeasible in Compose. | FR-3, NFR-3, NFR-9 |
 | D2 | **Decrypt-refusal = pass-through-SNI** (default). Pinned/hostile flows tunneled opaque, logged by destination. `--audit-decrypt-fail-closed` drops them instead. | NFR-10 |
-| D3 | **Log lives in a sidecar-only bind mount** (`audit-log/` mounted into the gateway, not the agent). Live during session, agent can't tamper. | NFR-4 |
+| D3 | **Log lives in a sidecar-only bind mount** (a private `mktemp -d` dir mounted into the gateway, not the agent). Live during session, agent can't tamper. | NFR-4 |
+| D7 | **Finished log outside every agent mount, hash-chained** (approved 2026-10-05). Exported to `${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project-slug>/` (root overridable via `TRIGON_AUDIT_DIR`), which is on the G1 mount deny-list; dir 0700, files 0444. Records carry a sha256 chain (schema v2) and the head hash is printed at session end. Replaces the earlier copy into `<project>/audit-log/`, which a later session's agent could edit. | NFR-4, SECURITY-14 |
 | D4 | **Purpose-built gateway image** `trigon-audit-gw` = mitmproxy + iptables (+ procps), built by `./build.sh --audit-gateway`. The stock mitmproxy image lacks `iptables`, which the transparent REDIRECT needs (would exit 127). Base `mitmproxy/mitmproxy` pinned by version (digest before release). Serves both destination-only and decrypt paths. | NFR-6, SECURITY-10/13 |
 | D5 | **`--audit` + `--playwright-headless` allowed** — headless Chromium stays namespaced, routes through the gateway. `--audit` + `--playwright` (host net) **refused**. | FR-7 |
 | D6 | **Flags:** `--audit`, `--audit-decrypt`, `--audit-allow-degraded`, `--audit-decrypt-fail-closed`. | FR-1, NFR-5 |
@@ -57,7 +58,8 @@ decryption) — a compliance artifact with minimal PII surface.
                                         ▼
                                      NAT → internet
                                         │
-                            writes ─────┴──────► audit-log/  (sidecar-only mount)
+                            writes ─────┴──────► private work dir (sidecar-only mount)
+                                                   └─► at exit: ~/.local/state/trigon/audit/<project>/
 ```
 
 - Agent has **no** route to the internet except through `audit-gw` (internal net
@@ -117,7 +119,8 @@ decrypt path, MITM CA-accepting flows and pass through the rest.
   listener, (b) runs mitmproxy in `transparent` mode (destination-only) or with
   decryption enabled (`--audit-decrypt`), (c) writes JSONL via a mitmproxy addon.
 - Networks: `internal` (agent-facing) + `default` (egress).
-- Log target: `audit-log/` bind-mounted **into this service only**.
+- Log target: a private work dir bind-mounted **into this service only**,
+  exported to the D7 audit directory at session end (§5.3).
 
 ### C3 — Summary / parse helper (`lib/audit_summary.py`)
 **Responsibility:** read the JSONL log, emit the human-readable session summary
@@ -132,7 +135,8 @@ embedded-`lib/*.py` pattern (`parse_provider.py`, `merge_mcp.py`).
 
 ```jsonc
 {
-  "v": 1,                          // schema version
+  "v": 2,                          // schema version
+  "prev": "9f86d0…",               // sha256 (hex) of the previous line; GENESIS for the first (§5.4)
   "ts": "2026-08-15T12:34:56.789Z",// ISO-8601 UTC, connection/request start
   "mode": "metadata" | "decrypted",// per-record depth
   "dst_host": "api.anthropic.com", // SNI / CONNECT host; "" if IP-literal
@@ -155,17 +159,73 @@ embedded-`lib/*.py` pattern (`parse_provider.py`, `merge_mcp.py`).
   recorded with the query string stripped.
 - IP-literal connections: `dst_host: ""`, logged by `dst_ip` (NFR-3 caveat b).
 
-### 5.2 Session summary (`audit-log/summary-<timestamp>.txt`)
-Human-readable: total requests, unique destinations (sorted by count), total
+### 5.2 Session summary (`summary-<compose-project>-<ts>.txt`)
+Human-readable: hash-chain status and head hash, total requests, unique destinations (sorted by count), total
 bytes, first/last timestamp, decrypted vs metadata-only counts, and — when empty
 — an explicit `0 outbound requests — zero-egress verified` line (FR-9).
 
-### 5.3 Layout in `audit-log/`
+### 5.3 Location and layout (D7)
 ```
-audit-log/
-  session-<name>-<ts>.jsonl     # the machine log (sidecar-owned)
-  summary-<name>-<ts>.txt       # human summary (written by C3 at session end)
+${TRIGON_AUDIT_DIR:-${XDG_STATE_HOME:-~/.local/state}/trigon/audit}/   # 0700
+  <project-slug>/                          # 0700; basename + cksum of the full path
+    session-<compose-project>-<ts>.jsonl   # 0444, the machine log
+    summary-<compose-project>-<ts>.txt     # 0444, written by C3
 ```
+- `<compose-project>` is the per-launch `trigon-<name>-<6 hex>` (§7), so two
+  concurrent sessions on one project never write the same file.
+- The deny-list in `mount_denied_reason()` (threat-model G1) covers the root,
+  everything under it and every directory that contains it (e.g. `~/.local`).
+  It applies to every launch, not only `--audit` ones, so no agent container can
+  mount a finished log. `--allow-unsafe-mount` overrides it with a warning, as
+  for the rest of G1.
+- During the session the sidecar writes to a private `mktemp -d` dir (D3). The
+  finalize step copies the log here, writes the summary and chmods both 0444.
+  If the directory can't be created, the work dir is kept and its path printed,
+  never deleted.
+- The project's `audit-log/` is no longer written.
+
+### 5.4 Hash chain (schema v2)
+
+**Construction.** Each line is the JSON record, serialized ASCII-only with
+sorted keys and no spaces. Its `prev` field is the lowercase hex sha256 of the
+previous line's exact bytes (without the newline). The first record's `prev` is
+the fixed GENESIS value: 64 zeros. The **head** is the sha256 of the last line,
+or GENESIS for an empty log. The addon serializes, links and writes each line
+under one lock. If mitmproxy reloads the addon, it resumes from the file's last
+line.
+
+**Verification.** `lib/audit_summary.py` is strict: every line must be a v2
+object whose `prev` matches, and blank, malformed or unterminated lines fail.
+It writes the chain status and head into the summary. `trigon-up.sh` prints the
+head at session end, and `audit_summary.py --verify LOG [HEAD]` re-checks a log
+later, optionally against the recorded head.
+
+What the chain **does** guarantee:
+- An edit to any line but the last, a deletion of any line but the last, any
+  reordering, or an insertion fails verification on its own, because the next
+  line's `prev` no longer matches.
+- Checked against the head recorded at session end, **any** change is detected,
+  including an edit to the last line and lines cut off the end.
+
+What it does **not** guarantee:
+- **Tail truncation is caught only against the recorded head.** Removing the
+  last *k* lines leaves a valid, shorter chain. An emptied file verifies as a
+  valid zero-record log.
+- **It is not a signature.** The chain is unkeyed, so anyone with write access
+  to the file can rewrite it and recompute every hash. Only a head kept outside
+  the audit directory exposes that. The summary file doesn't help, because it
+  sits next to the log and can be rewritten along with it.
+- **It doesn't make the log immutable.** Modes 0444 and 0700 prevent
+  accidents, but the owning user can chmod them and root ignores them.
+  Protection from the *agent* comes from the location (the deny-list), not from
+  the chain.
+- **It says nothing about traffic the gateway never saw.** Completeness is §3
+  and Batches 2–3. The chain also starts with the addon: a compromised gateway
+  can write a consistent but false chain.
+
+Stronger options, not implemented: anchoring the head somewhere external (a
+commit, a ticket, an RFC 3161 timestamp), or signing it with a key the agent
+never sees.
 
 ## 6. Interfaces — flag surface
 
@@ -195,7 +255,8 @@ Guards:
    JSONL on the sidecar-only mount.
 4. **Session end:** `trigon-up.sh` invokes `lib/audit_summary.py` on the JSONL to
    write the summary; the `cleanup` trap removes generated fragments + CA material
-   (NFR-7). The JSONL + summary remain in `audit-log/`. Finalize runs from the
+   (NFR-7). The JSONL + summary are exported to the D7 directory (§5.3) and the
+   chain head is printed (§5.4). Finalize runs from the
    `cleanup` trap, so the log is exported even when the session exits non-zero or
    the launcher is interrupted.
 5. **Isolation between sessions:** every compose call carries a per-launch
@@ -211,7 +272,7 @@ Guards:
 | NFR-1 redaction | Destination-only mode records no path/header/body by construction. Decrypt-mode addon strips `Authorization`/`Proxy-Authorization`, API keys, query tokens; never writes bodies. |
 | NFR-2 cert-pinning | Decrypt path injects the CA (`NODE_EXTRA_CA_CERTS` for Claude Code/Node). Verification step in Build & Test: confirm the agent's *own* provider calls still succeed under decrypt; D2 pass-through prevents a pinned provider call from breaking the run. |
 | NFR-3 completeness | Internal net removes the agent's egress; sidecar is the sole route (D1-A). All escaping traffic is logged. Documented caveats: metadata mode can't see content; IP-literals logged by IP; guarantee holds only for the gateway topology → FR-7 refuses host-net. |
-| NFR-4 tamper-resistance | Log on a **sidecar-only** bind mount (D3); agent has no path to it. |
+| NFR-4 tamper-resistance | During the session the log is on a **sidecar-only** bind mount (D3). Afterwards it is exported to a deny-listed host dir (0700/0444) that no agent can mount, and a sha256 hash chain, whose head is printed at session end, makes later edits detectable (D7, §5.4). |
 | NFR-5 fail-closed | `depends_on: service_healthy`; no agent launch if gateway unhealthy. `--audit-allow-degraded` opts into fail-open. |
 | NFR-6 pinned image | mitmproxy pinned by digest (D4). |
 | NFR-7 cleanup | Generated fragment, CA material, temp config in `TEMP_FILES`; removed by `cleanup` trap on EXIT/INT/TERM. |
@@ -233,6 +294,9 @@ Guards:
   - malformed/partial lines are skipped without crashing (PBT robustness).
   - redaction: no `Authorization`/key/token substrings survive into any output.
   - empty log → "0 outbound requests" summary.
+  - hash chain (v2): addon output verifies, and the head is the hash of the last
+    line. PBT: any single-line edit, delete or reorder is detected, by the chain
+    alone unless only the last line is touched, otherwise by the recorded head.
 - **Live-container verification (parked — no Docker in dev sessions):** enforced
   routing (agent cannot reach the internet except via `audit-gw`); `--audit-decrypt`
   doesn't break Claude Code's own provider calls; `--air-gap --audit` zero-egress.

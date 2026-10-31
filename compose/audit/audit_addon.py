@@ -23,13 +23,20 @@ path is stored with its query string stripped.
 The sidecar runs as uid 0 with cap_drop:ALL + NET_ADMIN + DAC_OVERRIDE; the
 DAC_OVERRIDE is what lets root write this log/CA into the host-owned bind mount.
 
+Hash chain (schema v2, docs/audit-design.md §5.4): every record carries
+`prev`, the sha256 of the previous line exactly as written (GENESIS for the
+first). Editing, deleting or reordering a line breaks the chain; the hash of
+the last line (the head) is printed by trigon-up.sh at session end so tail
+truncation can be checked too. `lib/audit_summary.py` verifies the chain.
+
 NOTE: the pass-through-on-pinning path (decrypt mode) is best-effort and
 pending live-container verification (no Docker in dev sessions,
 consistent with the parked security-hardening controls). The record *schema*
-(v1) is the stable contract that `lib/audit_summary.py` and the tests depend on.
+(v2) is the stable contract that `lib/audit_summary.py` and the tests depend on.
 """
 from __future__ import annotations  # defer annotations so the module imports
 
+import hashlib
 import ipaddress
 import json
 import os
@@ -42,7 +49,9 @@ try:  # mitmproxy is only present inside the sidecar; guarded so host tests can
 except ImportError:  # pragma: no cover
     ctx = http = tcp = parse_client_hello = None  # type: ignore
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+# `prev` of the first record in a log. Must match lib/audit_summary.py.
+GENESIS = "0" * 64
 # Stop looking for a ClientHello after this many client bytes (not TLS, or junk).
 MAX_HELLO_BYTES = 16384
 
@@ -57,6 +66,36 @@ def _strip_query(path: str) -> str:
     return path.split("?", 1)[0] if path else path
 
 
+def line_hash(line: str) -> str:
+    """sha256 of one log line as written (without its newline)."""
+    return hashlib.sha256(line.encode("utf-8")).hexdigest()
+
+
+def chain_line(record: dict, prev: str) -> str:
+    """Serialize a record as a v2 log line linked to the previous line's hash."""
+    record["v"] = SCHEMA_VERSION
+    record["prev"] = prev
+    # ensure_ascii (the default) keeps lines pure ASCII, so the bytes hashed
+    # here are the bytes on disk whatever the host's locale.
+    return json.dumps(record, separators=(",", ":"), sort_keys=True)
+
+
+def tail_hash(path: str) -> str:
+    """Hash of the last complete line in an existing log, or GENESIS.
+
+    mitmproxy re-instantiates the addon when the script is reloaded; resuming
+    from the file keeps the chain unbroken across that reload.
+    """
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except FileNotFoundError:
+        return GENESIS
+    lines = data.decode("utf-8").split("\n")
+    complete = [l for l in lines[:-1] if l]   # lines[-1]: after the last \n
+    return line_hash(complete[-1]) if complete else GENESIS
+
+
 class AuditLogger:
     def __init__(self) -> None:
         self.log_path = os.environ.get("AUDIT_LOG_FILE", "/audit-log/session.jsonl")
@@ -64,6 +103,7 @@ class AuditLogger:
         self.fail_closed = os.environ.get("AUDIT_DECRYPT_FAIL_CLOSED", "0") == "1"
         self._lock = threading.Lock()
         self._fh = None
+        self._prev = GENESIS   # hash of the last line written (chain head)
         # Per raw-TCP flow id: SNI + running byte counts (contents are dropped).
         self._conns = {}
         # Upstream connects started but not yet established/failed, by server id.
@@ -76,6 +116,7 @@ class AuditLogger:
             # observable (tcp_* hooks) so each connection is still logged.
             ctx.options.update(ignore_hosts=[".*"], show_ignored_hosts=True)
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        self._prev = tail_hash(self.log_path)
         # Line-buffered append so records survive an abrupt container stop.
         self._fh = open(self.log_path, "a", buffering=1, encoding="utf-8")
         ctx.log.info(
@@ -94,10 +135,12 @@ class AuditLogger:
             self._fh.close()
 
     def _emit(self, record: dict) -> None:
-        record["v"] = SCHEMA_VERSION
-        line = json.dumps(record, separators=(",", ":"), sort_keys=True)
+        # Serialize, link and write under one lock so concurrent hooks can't
+        # interleave and fork the chain.
         with self._lock:
+            line = chain_line(record, self._prev)
             self._fh.write(line + "\n")
+            self._prev = line_hash(line)
 
     # ── intercepted HTTP (decrypt path only) ─────────────────────────────────
     def response(self, flow: http.HTTPFlow) -> None:

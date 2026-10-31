@@ -15,6 +15,25 @@ mktemp_yml() {
   echo "$f.yml"
 }
 
+# Symlink-resolves a path that may not exist yet: the deepest existing ancestor
+# goes through pwd -P and the missing remainder is appended unchanged.
+resolve_path() {
+  local p="$1" rest=""
+  [[ "$p" != /* ]] && p="$PWD/$p"
+  while [[ ! -d "$p" ]]; do
+    rest="/$(basename "$p")$rest"
+    p="$(dirname "$p")"
+  done
+  echo "$(cd "$p" && pwd -P)$rest" | sed 's#^//#/#'
+}
+
+# ── Audit log root (decision D7) ──────────────────────────────────────────────
+# Finished --audit logs live here, one subdirectory per project — outside every
+# path the agent can mount (it is on the deny-list below), so no later session
+# can rewrite a past session's trail. Resolved up front because the deny-list
+# applies to every launch, audited or not.
+AUDIT_ROOT="$(resolve_path "${TRIGON_AUDIT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/trigon/audit}")"
+
 # ── Mount deny-list (docs/threat-model.md G1) ─────────────────────────────────
 # Prints why a path must not be bind-mounted and returns 0, or returns 1 if the
 # path is fine. Paths arrive here already symlink-resolved (pwd -P), so a
@@ -38,6 +57,12 @@ mount_denied_reason() {
       [[ "$p" == "$home/$d" || "$p" == "$home/$d"/* ]] && { echo "credential directory ~/$d"; return 0; }
     done
     [[ "$p" == "$home"/.trigon-settings* ]] && { echo "a Trigon settings directory (holds OAuth tokens)"; return 0; }
+  fi
+
+  # The audit log root, anything under it, and any directory containing it
+  # (e.g. ~/.local): an agent that can reach past logs can rewrite them.
+  if [[ "$p" == "$AUDIT_ROOT" || "$p" == "$AUDIT_ROOT"/* || "$AUDIT_ROOT" == "$p"/* ]]; then
+    echo "the Trigon audit log directory $AUDIT_ROOT (or a parent of it)"; return 0
   fi
   return 1
 }
@@ -92,7 +117,11 @@ Network / browser:
 Audit (network egress log):
   --audit               Route ALL agent egress through an enforced audit gateway
                         (mitmproxy sidecar) and log every destination to
-                        audit-log/. Unbypassable/complete even for a hostile
+                        ${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project>/
+                        (root overridable via TRIGON_AUDIT_DIR) — outside every
+                        agent mount. Records are hash-chained; the chain head is
+                        printed at session end (keep it to detect later edits).
+                        Unbypassable/complete even for a hostile
                         agent; destination-only depth by default (no decryption).
                         Opt-in; incompatible with --playwright (host netns) and
                         --root, and refused when run as root (uid 0 is exempt
@@ -121,7 +150,8 @@ Pipeline:
 
 Safety (see docs/threat-model.md):
   --allow-unsafe-mount  Override the mount deny-list (/, $HOME, /etc, credential
-                        directories like ~/.ssh, ...) and mount anyway (G1)
+                        directories like ~/.ssh, the audit log directory, ...)
+                        and mount anyway (G1)
   --allow-metadata      Proceed with --playwright even when the cloud metadata
                         service (169.254.169.254) is reachable from this host (G3)
 
@@ -850,12 +880,19 @@ if [[ $AUDIT -eq 1 ]]; then
   AUDIT_IMAGE="${TRIGON_AUDIT_IMAGE:-trigon-audit-gw:latest}"
 
   # Sidecar-only log dir: NOT under the agent's project mount, so the agent
-  # cannot rewrite its own audit trail (NFR-4). Copied into the project's
-  # audit-log/ after the session (see finalize block near launch).
+  # cannot rewrite its own audit trail while it runs (NFR-4). Copied to
+  # AUDIT_LOG_DEST after the session (see audit_finalize near launch).
   AUDIT_WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/trigon-audit.XXXXXX")"
   mkdir -p "${AUDIT_WORK_DIR}/.mitmproxy"   # bind target for the CA (decrypt path)
   export AUDIT_WORK_DIR
-  AUDIT_LOG_DEST="${PROJECT_ROOT}/audit-log"
+  # Final home (D7): per project under AUDIT_ROOT, never inside the project —
+  # a later session's agent could otherwise edit it. The slug is the project's
+  # basename plus a checksum of its full path, so same-named projects in
+  # different places don't share a directory.
+  _audit_slug="$(basename "$PROJECT_ROOT")"
+  _audit_slug="$(printf '%s' "$_audit_slug" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+  _audit_slug="${_audit_slug:0:40}-$(printf '%s' "$PROJECT_ROOT" | cksum | cut -d' ' -f1)"
+  AUDIT_LOG_DEST="${AUDIT_ROOT}/${_audit_slug}"
 
   AUDIT_DEPENDS="service_healthy"
   [[ $AUDIT_ALLOW_DEGRADED -eq 1 ]] && AUDIT_DEPENDS="service_started"
@@ -918,6 +955,7 @@ if [[ $AUDIT -eq 1 ]]; then
     fi
   fi
   echo "Audit: enforced gateway enabled — depth: ${_audit_depth}; NET_ADMIN scoped to audit-gw."
+  echo "Audit: log will be written to ${AUDIT_LOG_DEST}/"
   [[ $AUDIT_ALLOW_DEGRADED -eq 1 ]] && echo "Audit: --audit-allow-degraded — will launch even if the gateway is unhealthy (fail-open)."
   [[ "$PROVIDER_TYPE" == "litellm-proxy" ]] && echo "Audit: note — the agent's egress is audited; the litellm→provider hop is a documented coverage gap (see docs/audit-design.md §3.2)."
 fi
@@ -1011,8 +1049,10 @@ fi
 # Called from cleanup once a real session has run (never under --dry-run), so
 # the log is exported even if the session exits non-zero or the launcher is
 # interrupted — cleanup removes the sidecar-only work dir right after. The log
-# is copied into the project's audit-log/; an absent log means the gateway saw
-# no egress (zero-egress proof, FR-9).
+# is copied to AUDIT_LOG_DEST (0700 dir, 0444 files); an absent log means the
+# gateway saw no egress (zero-egress proof, FR-9). The chain head is printed so
+# the user can keep it outside the log directory: it is what exposes a later
+# truncation or wholesale rewrite (docs/audit-design.md §5.4).
 # shellcheck disable=SC2329  # invoked from cleanup (EXIT trap)
 audit_finalize() {
   # Stop the gateway before reading its log: a graceful stop makes the addon
@@ -1020,16 +1060,36 @@ audit_finalize() {
   # not outlive the session (its log dir is removed in cleanup). COMPOSE_CMD
   # carries -p, so this only ever touches this session's gateway.
   "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" rm --stop --force -v audit-gw >/dev/null 2>&1 || true
-  mkdir -p "$AUDIT_LOG_DEST"
-  local ats jsonl
+  local ats base jsonl summary chain
+  # umask 077: any directory mkdir -p creates here is 0700 from the start.
+  if ! (umask 077 && mkdir -p "$AUDIT_LOG_DEST"); then
+    # Never lose the log: keep the work dir (cleanup skips an emptied
+    # AUDIT_WORK_DIR) and say where it is.
+    echo "ERROR: cannot create ${AUDIT_LOG_DEST}; the raw audit log is kept in ${AUDIT_WORK_DIR}" >&2
+    AUDIT_WORK_DIR=""
+    return 0
+  fi
+  chmod 700 "$AUDIT_ROOT" "$AUDIT_LOG_DEST" || echo "Warning: could not chmod 700 ${AUDIT_LOG_DEST}" >&2
   ats="$(date -u +%Y%m%dT%H%M%SZ)"
-  jsonl="${AUDIT_LOG_DEST}/session-${NAME}-${ats}.jsonl"
+  # The compose project name is sanitized and unique per launch, so concurrent
+  # sessions on one project never write the same file.
+  base="${COMPOSE_PROJECT}-${ats}"
+  jsonl="${AUDIT_LOG_DEST}/session-${base}.jsonl"
+  summary="${AUDIT_LOG_DEST}/summary-${base}.txt"
   if [[ -f "${AUDIT_WORK_DIR}/session.jsonl" ]]; then
     cp "${AUDIT_WORK_DIR}/session.jsonl" "$jsonl"
   else
     : > "$jsonl"
   fi
-  python3 "${LIB_DIR}/audit_summary.py" "$jsonl" "${AUDIT_LOG_DEST}/summary-${NAME}-${ats}.txt" || true
+  if chain="$(python3 "${LIB_DIR}/audit_summary.py" "$jsonl" "$summary")"; then
+    echo "Audit: hash chain ${chain}"
+    echo "Audit: keep that head hash outside ${AUDIT_ROOT} — it is what detects a"
+    echo "  later truncation or rewrite. Check with:"
+    echo "  python3 ${LIB_DIR}/audit_summary.py --verify '${jsonl}' <head>"
+  else
+    echo "WARNING: audit log hash chain did not verify: ${chain:-summary failed}" >&2
+  fi
+  chmod 444 "$jsonl" "$summary" 2>/dev/null || true
   echo "Audit: log + summary written to ${AUDIT_LOG_DEST}"
 }
 

@@ -10,6 +10,9 @@ setup() {
   PROJ="$BATS_TEST_TMPDIR/proj"
   mkdir -p "$PROJ"
   export CLAUDE_SETTINGS_DIR="$BATS_TEST_TMPDIR/settings"
+  # Keep audit logs out of the real ~/.local/state.
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+  unset TRIGON_AUDIT_DIR
 }
 
 @test "--audit enables the enforced gateway (destination-only by default)" {
@@ -109,19 +112,39 @@ EOF
 }
 
 # A stub `docker` that logs every call and makes `compose run` fail, so the
-# post-session path (finalize + teardown) runs without a real Docker.
+# post-session path (finalize + teardown) runs without a real Docker. On `run`
+# it plays the gateway: it finds the sidecar's /audit-log bind in the generated
+# fragment and writes a two-record hash-chained log there with the real addon.
 stub_docker() {
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   cat > "$BATS_TEST_TMPDIR/bin/docker" <<'EOF2'
 #!/bin/sh
 echo "$*" >> "$DOCKER_LOG"
 case "$*" in
-  *" run --rm "*) exit 3 ;;
+  *" run --rm "*)
+    for a in "$@"; do
+      case "$a" in *.yml)
+        w="$(sed -n 's#^ *- \(.*\):/audit-log$#\1#p' "$a")"
+        [ -n "$w" ] && python3 - "$STUB_REPO" "$w/session.jsonl" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1] + "/compose/audit")
+import audit_addon as a
+prev = a.GENESIS
+with open(sys.argv[2], "w") as fh:
+    for host in ("api.anthropic.com", "github.com"):
+        line = a.chain_line({"mode": "metadata", "dst_host": host, "dst_port": 443,
+                             "bytes_out": 1, "bytes_in": 2}, prev)
+        fh.write(line + "\n")
+        prev = a.line_hash(line)
+PY
+      ;; esac
+    done
+    exit 3 ;;
 esac
 exit 0
 EOF2
   chmod +x "$BATS_TEST_TMPDIR/bin/docker"
-  export DOCKER_LOG="$BATS_TEST_TMPDIR/docker.log"
+  export DOCKER_LOG="$BATS_TEST_TMPDIR/docker.log" STUB_REPO="$REPO"
 }
 
 @test "a failed --audit session still exports the log and tears down only its project" {
@@ -137,4 +160,68 @@ EOF2
   [ "$(grep -n 'audit-gw$' "$DOCKER_LOG" | cut -d: -f1)" -lt "$(grep -n 'down -v' "$DOCKER_LOG" | cut -d: -f1)" ]
   # every compose call is scoped to the same project
   [ "$(grep ' compose ' "$DOCKER_LOG" | grep -v ' compose version' | grep -vc -- "$proj")" -eq 0 ]
+}
+
+# ── D7: log location, permissions, hash chain ────────────────────────────────
+
+@test "--audit logs to the XDG state dir, not into the project" {
+  run "$TRIGON" "$PROJ" --audit --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Audit: log will be written to $XDG_STATE_HOME/trigon/audit/proj-"[0-9]+/ ]]
+  [[ "$output" != *"$PROJ/audit-log"* ]]
+  [ ! -e "$PROJ/audit-log" ]
+  [ ! -e "$XDG_STATE_HOME/trigon" ]          # dry-run creates nothing
+}
+
+@test "TRIGON_AUDIT_DIR overrides the audit log root" {
+  TRIGON_AUDIT_DIR="$BATS_TEST_TMPDIR/elsewhere" run "$TRIGON" "$PROJ" --audit --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Audit: log will be written to $BATS_TEST_TMPDIR/elsewhere/proj-"* ]]
+}
+
+@test "same-named projects in different places get different log dirs" {
+  mkdir -p "$BATS_TEST_TMPDIR/a/proj" "$BATS_TEST_TMPDIR/b/proj"
+  run "$TRIGON" "$BATS_TEST_TMPDIR/a/proj" --audit --dry-run
+  d1="$(grep -o 'written to .*' <<<"$output")"
+  run "$TRIGON" "$BATS_TEST_TMPDIR/b/proj" --audit --dry-run
+  d2="$(grep -o 'written to .*' <<<"$output")"
+  [ -n "$d1" ]
+  [ "$d1" != "$d2" ]
+}
+
+@test "mounting the audit log dir, a subdir or a parent of it is refused (G1)" {
+  mkdir -p "$XDG_STATE_HOME/trigon/audit/proj-1"
+  for p in "$XDG_STATE_HOME/trigon/audit" "$XDG_STATE_HOME/trigon/audit/proj-1" "$XDG_STATE_HOME"; do
+    run "$TRIGON" "$p" --dry-run              # refused with or without --audit
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"refusing to mount"* ]]
+    [[ "$output" == *"audit log directory"* ]]
+  done
+  # ...also as an extra project path, and when reached through a symlink
+  ln -s "$XDG_STATE_HOME/trigon" "$BATS_TEST_TMPDIR/link"
+  run "$TRIGON" "$PROJ" "$BATS_TEST_TMPDIR/link" --dry-run
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"audit log directory"* ]]
+}
+
+@test "a session's log lands in the state dir, read-only, with a verifying chain" {
+  stub_docker
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TRIGON" "$PROJ" --audit
+  [ "$status" -eq 3 ]
+  [ ! -e "$PROJ/audit-log" ]
+  dir="$(echo "$XDG_STATE_HOME"/trigon/audit/proj-*)"
+  [ -d "$dir" ]
+  [[ "$(ls -ld "$dir")" == drwx------* ]]
+  [[ "$(ls -ld "$XDG_STATE_HOME/trigon/audit")" == drwx------* ]]
+  log="$(echo "$dir"/session-trigon-claude-code-*.jsonl)"
+  sum="$(echo "$dir"/summary-trigon-claude-code-*.txt)"
+  [[ "$(ls -l "$log")" == -r--r--r--* ]]
+  [[ "$(ls -l "$sum")" == -r--r--r--* ]]
+  # the head hash is printed at session end and matches the log
+  [[ "$output" == *"Audit: hash chain verified — 2 records, head sha256:"* ]]
+  head="$(grep -o 'head sha256:[0-9a-f]*' <<<"$output" | cut -d: -f2)"
+  [ "${#head}" -eq 64 ]
+  grep -q "verified — 2 records, head sha256:$head" "$sum"
+  run python3 "$REPO/lib/audit_summary.py" --verify "$log" "$head"
+  [ "$status" -eq 0 ]
 }

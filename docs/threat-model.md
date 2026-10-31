@@ -103,7 +103,10 @@ Proposed mitigations:
 
 Status: **implemented 2026-07-06** (deny-list of system roots, `$HOME`,
 credential dirs and Trigon settings dirs; paths symlink-resolved via `pwd -P`
-before checking; `--allow-unsafe-mount` overrides with a warning). `:ro`
+before checking; `--allow-unsafe-mount` overrides with a warning). Since
+2026-10-31 the list also covers the `--audit` log root
+(`~/.local/state/trigon/audit` or `$TRIGON_AUDIT_DIR`) and every parent of it, so
+no agent can mount past audit logs (M7 decision D7). `:ro`
 default mounts remain **proposed**.
 
 ### G2 — Credential exposure via `/settings` (`$HOME`)

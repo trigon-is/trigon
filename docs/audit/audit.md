@@ -248,3 +248,56 @@ We're finishing Batch 1 of the M7 --audit completion plan on branch
 **Context**: CONSTRUCTION — Batch 1, 1b committed.
 
 ---
+
+## Construction — Batch 1, item 1c: D7 log location + hash chain
+**Timestamp**: 2026-10-31
+**User Input**: (continues the Batch 1 request above; no new input)
+**AI Response**: Implemented D7.
+- **Launcher.** `AUDIT_ROOT` = `${TRIGON_AUDIT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/trigon/audit}`, symlink-resolved even when it doesn't exist yet (`resolve_path`). The per-project dir is `<basename>-<cksum of full path>`. `mount_denied_reason()` refuses the root, anything under it, and any ancestor of it (e.g. `~/.local`), on every launch. `audit_finalize` creates the dirs under umask 077, chmods both to 0700, names files after the per-launch compose project, chmods them 0444 and prints the chain head plus a `--verify` command. If the destination can't be created, it keeps the work dir rather than deleting the log.
+- **Addon (schema v2).** Each record carries `prev` = sha256 of the previous line. GENESIS is 64 zeros. Lines are written under the lock, and `tail_hash` resumes the chain after a mitmproxy addon reload.
+- **`lib/audit_summary.py`.** A strict `verify_chain`; the summary gets a chain line; with OUTFILE it prints the chain status and exits 1 if the chain is broken; a new `--verify LOG [HEAD]` mode reports MISMATCH when the chain is intact but the head differs (truncation or rewrite).
+- **Docs.** design §5.1–5.4 (incl. what the chain does NOT guarantee: tail truncation and wholesale recompute are only caught against the recorded head; it is unkeyed, not a signature; 0444 isn't immutability), D3/D7, NFR-4 mapping, requirements decision 4/FR-5/NFR-4, README, `--help`, `.gitignore` note, threat-model G1 status.
+- **Tests.** python 26 → 38, incl. PBT that any single-line edit/delete/reorder is detected (by the chain alone unless only the last line changes; otherwise by the head). A mutation check (verifier's `prev` comparison disabled) fails 4 tests. bats 51 → 56, incl. deny-list (dir, subdir, parent, symlinked extra path) and a stub-`docker` run whose fake gateway writes a chained log with the real addon: log in the state dir, 0700/0444, head printed and `--verify` passes.
+- **Bug caught.** A double-dash slug (`basename`'s newline through `tr -c`) was caught by inspecting the output; the test pattern is tightened.
+- **Not live-verified** (no Docker).
+
+Host smoke checklist handed to the user (exact commands, run from the repo root on the Docker host):
+```bash
+# 0. prerequisites (the addon is bind-mounted, so no image rebuild is needed if trigon-audit-gw:latest exists)
+docker image inspect trigon-audit-gw:latest >/dev/null || ./build.sh --audit-gateway
+
+# 1. --audit + --root / uid 0 refused (exit 1, nothing started)
+./trigon-up.sh ~/test_proj --audit --root; echo "exit=$?"
+sudo CLAUDE_SETTINGS_DIR=/tmp/trigon-smoke/root-settings ./trigon-up.sh ~/test_proj --audit; echo "exit=$?"   # scratch settings dir: the launcher creates it before the guard fires
+docker ps -a --format '{{.Names}}' | grep audit-gw || echo "no gateway started"
+
+# 2. two concurrent --audit sessions (run A and B in two terminals at the same time)
+mkdir -p /tmp/trigon-smoke/a /tmp/trigon-smoke/b
+printf 'Run `curl -sI https://example.com` and `curl -sI https://github.com` and report the status lines.\n' > /tmp/trigon-smoke/prompt.md
+#   terminal A:
+CLAUDE_SETTINGS_DIR=~/.trigon-settings-trigon-claude-code ./trigon-up.sh /tmp/trigon-smoke/a --name smoke-a --audit --yolo --prompt-file /tmp/trigon-smoke/prompt.md
+#   terminal B:
+CLAUDE_SETTINGS_DIR=~/.trigon-settings-trigon-claude-code ./trigon-up.sh /tmp/trigon-smoke/b --name smoke-b --audit --yolo --prompt-file /tmp/trigon-smoke/prompt.md
+#   terminal C, while both run: two projects, two distinct gateways
+docker compose ls | grep trigon-smoke
+docker ps --format '{{.Names}}' | grep audit-gw
+#   after both exit: nothing left behind
+docker ps -a --format '{{.Names}}' | grep -E 'smoke|audit-gw' || echo "no containers left"
+docker network ls --format '{{.Name}}' | grep trigon-smoke || echo "no networks left"
+
+# 3. log in the new dir, read-only, chain verifies (use the head hash printed at the end of session A)
+ls -la ~/.local/state/trigon/audit/ ~/.local/state/trigon/audit/a-*/
+ls /tmp/trigon-smoke/a        # must NOT contain audit-log/
+cat ~/.local/state/trigon/audit/a-*/summary-*.txt
+python3 lib/audit_summary.py --verify ~/.local/state/trigon/audit/a-*/session-*.jsonl <HEAD_FROM_SESSION_A>
+#   tamper demo on a copy: expect "BROKEN at line 2" (needs >= 2 records)
+cp ~/.local/state/trigon/audit/a-*/session-*.jsonl /tmp/t.jsonl && chmod u+w /tmp/t.jsonl
+sed -i '1s/"bytes_out":[0-9]*/"bytes_out":1/' /tmp/t.jsonl && python3 lib/audit_summary.py --verify /tmp/t.jsonl
+#   truncation demo: chain alone passes, the recorded head catches it ("MISMATCH")
+head -n -1 ~/.local/state/trigon/audit/a-*/session-*.jsonl > /tmp/t2.jsonl && python3 lib/audit_summary.py --verify /tmp/t2.jsonl <HEAD_FROM_SESSION_A>
+#   deny-list: refused
+./trigon-up.sh ~/.local/state/trigon/audit --dry-run; echo "exit=$?"
+```
+**Context**: CONSTRUCTION — Batch 1 complete (1a/1b/1c committed); next: host smoke run, then Batch 2.
+
+---
