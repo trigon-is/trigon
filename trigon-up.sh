@@ -94,7 +94,9 @@ Audit (network egress log):
                         (mitmproxy sidecar) and log every destination to
                         audit-log/. Unbypassable/complete even for a hostile
                         agent; destination-only depth by default (no decryption).
-                        Opt-in; incompatible with --playwright (host netns).
+                        Opt-in; incompatible with --playwright (host netns) and
+                        --root, and refused when run as root (uid 0 is exempt
+                        from interception).
   --audit-decrypt       Additionally MITM-decrypt flows whose TLS client trusts
                         the injected session CA (honest flows) to capture method/
                         path/status (redacted). Not an anti-exfil control — a
@@ -790,6 +792,25 @@ if [[ $AUDIT -eq 1 ]]; then
     echo "Error: --audit and --playwright are incompatible." >&2
     echo "  --playwright uses network_mode=host, whose egress the audit gateway cannot see." >&2
     echo "  Use --playwright-headless (stays namespaced, routed through the gateway) instead." >&2
+    exit 1
+  fi
+
+  # The gateway exempts uid 0 from the REDIRECT so mitmproxy's own upstream isn't
+  # looped back (compose/audit/entrypoint.sh). A uid-0 agent would match that
+  # exemption and egress unlogged (threat-model G6). Running mitmdump under a
+  # dedicated uid wouldn't help: --root restores SETUID, so the agent could
+  # switch to it. Refuse instead of auditing partially (NFR-3, NFR-5).
+  if [[ $ROOT_MODE -eq 1 ]]; then
+    echo "Error: --audit and --root are incompatible." >&2
+    echo "  A root agent shares uid 0 with the audit gateway, which is exempt from" >&2
+    echo "  interception — none of its egress would be logged (threat-model G6)." >&2
+    exit 1
+  fi
+  if [[ "$LOCAL_UID" -eq 0 ]]; then
+    echo "Error: --audit cannot run when the host user is root (uid 0, e.g. CI)." >&2
+    echo "  The agent runs as your uid, and uid 0 is the audit gateway's own uid, which" >&2
+    echo "  is exempt from interception — none of its egress would be logged" >&2
+    echo "  (threat-model G6). Launch as an unprivileged user." >&2
     exit 1
   fi
 

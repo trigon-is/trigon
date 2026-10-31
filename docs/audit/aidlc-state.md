@@ -4,7 +4,7 @@
 - **Project Type**: Brownfield
 - **Feature**: M7 — `--audit` network audit log (+ G6 egress allow-list)
 - **Start Date**: 2026-08-11T13:36:55Z
-- **Last Updated**: 2026-10-05
+- **Last Updated**: 2026-10-31
 - **Branch**: `feature/audit-inception`
 - **Current Stage**: CONSTRUCTION — Code Generation + Build & Test **complete
   (host-verified)**; live-container verification parked (no Docker in dev)
@@ -52,6 +52,7 @@ Goal: make "ALL agent egress is logged or blocked" literally true, fix the log
 location (issue 2) and support concurrent sessions. Batches in order:
 
 **Batch 1 — one quick session, low risk (no Docker needed except a final smoke run):**
+- **Progress (2026-10-31):** 1a ✔ committed (guard + 3 bats cases).
 - **1a. `--audit` + `--root` guard (NEW HOLE, found 2026-10-05).** `entrypoint.sh`
   RETURNs uid 0 so mitmproxy's own upstream isn't looped back; with `--root` the
   agent *is* uid 0 (`LOCAL_UID=0`), so none of its egress is redirected/logged.

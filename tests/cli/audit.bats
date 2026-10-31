@@ -29,6 +29,40 @@ setup() {
   [[ "$output" == *"--audit and --playwright are incompatible"* ]]
 }
 
+@test "--audit and --root are incompatible (uid-0 agent would bypass the gateway)" {
+  run "$TRIGON" "$PROJ" --audit --root --dry-run
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--audit and --root are incompatible"* ]]
+  [[ "$output" == *"threat-model G6"* ]]
+  [[ "$output" != *"[dry-run] would run:"* ]]
+}
+
+@test "--audit is refused when the host user is root (uid 0)" {
+  # Shadow `id` so the launcher sees uid 0 without the test running as root.
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/id" <<'EOF'
+#!/bin/sh
+case "$1" in -u|-g) echo 0 ;; *) exec /usr/bin/id "$@" ;; esac
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/id"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TRIGON" "$PROJ" --audit --dry-run
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"host user is root"* ]]
+  [[ "$output" == *"threat-model G6"* ]]
+  [[ "$output" != *"[dry-run] would run:"* ]]
+}
+
+@test "a root host user without --audit is not affected by the audit uid guard" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/id" <<'EOF'
+#!/bin/sh
+case "$1" in -u|-g) echo 0 ;; *) exec /usr/bin/id "$@" ;; esac
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/id"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TRIGON" "$PROJ" --dry-run
+  [ "$status" -eq 0 ]
+}
+
 @test "--audit-decrypt requires --audit" {
   run "$TRIGON" "$PROJ" --audit-decrypt --dry-run
   [ "$status" -eq 1 ]

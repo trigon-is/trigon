@@ -168,3 +168,75 @@ is captured verbatim, never summarized.
 **Context**: CONSTRUCTION — plan agreed; next session starts Batch 1.
 
 ---
+
+## Construction — Batch 1 session start (1a/1b/1c)
+**Timestamp**: 2026-10-31
+**User Input**: "We are working on Trigon See /app for the general context .. all or at least most paths below are based on /app
+
+We're finishing Batch 1 of the M7 --audit completion plan on branch
+  feature/audit-inception.
+
+  Start by reading, in order: CLAUDE.md, docs/session-start.md ("Current state"),
+  docs/audit/aidlc-state.md (the "COMPLETION PLAN" section, Batch 1 = items 1a, 1b, 1c),
+  and docs/threat-model.md (we're touching guards, mounts and the audit log).
+  The repo may be mounted somewhere other than /app; use absolute paths.
+
+  This is the CONSTRUCTION stage of an approved AI-DLC cycle: the plan and decision D7 were
+  approved on 2026-10-05, so no new approval gates are needed. Keep aidlc-state.md current
+  and append every interaction to docs/audit/audit.md (user input verbatim, append-only).
+ 
+  Do the three items in order, one commit each (the commit message explains why). Don't
+  push.
+
+  1a. Refuse --audit together with --root, the same way --playwright is refused. Also
+  refuse
+      --audit when the host user is uid 0 (id -u = 0, e.g. CI), since the gateway's uid-0
+      RETURN rule would leave all agent egress unlogged. Fail closed with a clear message
+      citing the threat-model goal. Add bats cases (use --dry-run).
+  
+  1b. Per-session compose project: pass -p trigon-<name>-<short random> (lowercased and
+      sanitized for compose) on every compose call, including the litellm sidecar and
+      air-gap paths. Run compose down at exit so per-session networks don't pile up.
+      Make sure finalize's \"rm --stop audit-gw\" targets only this session's gateway.
+      Check that this fits the per-launch /app_2..N mount fragment from eee8db9.
+      Add bats cases showing the -p in the dry-run output.
+
+1c. Decision D7, log location plus tamper evidence:
+      - Write logs to ${XDG_STATE_HOME:-$HOME/.local/state}/trigon/audit/<project-slug>/
+        (override with TRIGON_AUDIT_DIR), no longer to <project>/audit-log/.
+        Directory mode 0700; chmod finished files to 0444.
+      - Add that directory to mount_denied_reason() (the G1 deny-list).
+      - Hash chain in the addon: every JSONL record carries prev = sha256 of the previous
+        line (fixed genesis value); bump the schema to v2. audit_summary.py verifies the
+        chain and records the head hash in the summary; trigon-up.sh prints the head hash
+        at session end. State in the design doc what the chain does and doesn't guarantee
+        (e.g. truncation of the tail is only caught against the printed head hash).
+      - Update the requirements wording, README, --help, .gitignore note and 
+        docs/audit-design.md §5. Update tests/test_audit_summary.py with chain verification
+        plus a property-based test that any single-line edit, delete or reorder is
+        detected; update tests/cli/audit.bats.
+        
+  Run the checks listed in CLAUDE.md. bats and shellcheck may be missing; clone bats-core
+  into a scratch dir if needed, and say which checks you skipped. There's no Docker in the
+  container, so don't claim live behaviour. Instead, write a short host smoke-test
+  checklist
+  (the exact commands for me to run on the host) covering: --audit + --root refused, two
+  concurrent --audit sessions without a collision, and the log landing in the new dir with
+  a
+  chain that verifies.
+
+  Finish with a summary: commits, test results, skipped checks, the smoke checklist, and
+  3–4 sentences on what the log now guarantees, written so I can paste them into my thesis
+  brief for Thursday."
+**AI Response**: Read CLAUDE.md, session-start "Current state", aidlc-state COMPLETION PLAN and threat-model.md. Baseline: 40/40 bats green (bats-core cloned to scratch); shellcheck 0.11 (pip wheel, scratch) reports two pre-existing findings in trigon-up.sh (SC2004 line 159, SC2329 `cleanup`). No Docker in the container. Proceeding with 1a → 1b → 1c, one commit each.
+**Context**: CONSTRUCTION — Batch 1 in progress.
+
+---
+
+## Construction — Batch 1, item 1a: `--audit` × `--root` / uid-0 guard
+**Timestamp**: 2026-10-31
+**User Input**: (continues the Batch 1 request above; no new input)
+**AI Response**: Added two fail-closed refusals in the `--audit` block of `trigon-up.sh`: `--audit --root`, and `--audit` when `LOCAL_UID` (= `id -u`) is 0. Both cite threat-model G6 and explain the gateway's uid-0 RETURN exemption. `--help` notes the incompatibility. bats: `--root` refused, uid 0 refused (a fake `id` shadowed on PATH, so there is no env-var bypass of the guard), uid 0 without `--audit` still launches. 43/43 bats green; shellcheck findings unchanged (2 pre-existing).
+**Context**: CONSTRUCTION — Batch 1, 1a committed.
+
+---
