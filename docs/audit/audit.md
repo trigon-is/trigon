@@ -240,3 +240,11 @@ We're finishing Batch 1 of the M7 --audit completion plan on branch
 **Context**: CONSTRUCTION — Batch 1, 1a committed.
 
 ---
+
+## Construction — Batch 1, item 1b: per-session compose project
+**Timestamp**: 2026-10-31
+**User Input**: (continues the Batch 1 request above; no new input)
+**AI Response**: `trigon-up.sh` now derives `COMPOSE_PROJECT=trigon-<name>-<6 hex>` (name lowercased, chars outside `[a-z0-9_-]` → `-`, a duplicate `trigon-` prefix dropped, capped at 40) and appends `-p` to `COMPOSE_CMD` once, so run, finalize and teardown all share it. These paths are covered: default, litellm, air-gap, audit and multi-path. `cleanup` is idempotent; when a real session ran it calls `audit_finalize` (moved into a function), then `compose down -v --remove-orphans`, and only then removes the fragments. INT/TERM now `exit` (and so run cleanup once via EXIT) instead of resuming the script. Found and fixed while doing this: under `set -e` a non-zero session exit skipped finalize, and `cleanup` then deleted the unexported log. `run_compose` now records the status, and the launcher still exits with it. The `/app_2..N` fragment from eee8db9 is just one more `-f`; `down` runs before temp fragments are removed. bats: 7 new cases (6 dry-run `-p`, 1 stub-`docker` case checking run → `rm --stop audit-gw` → `down` under one project and exit-status passthrough). 51/51 green.
+**Context**: CONSTRUCTION — Batch 1, 1b committed.
+
+---

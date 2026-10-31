@@ -52,7 +52,8 @@ Goal: make "ALL agent egress is logged or blocked" literally true, fix the log
 location (issue 2) and support concurrent sessions. Batches in order:
 
 **Batch 1 — one quick session, low risk (no Docker needed except a final smoke run):**
-- **Progress (2026-10-31):** 1a ✔ committed (guard + 3 bats cases).
+- **Progress (2026-10-31):** 1a ✔ committed (guard + 3 bats cases). 1b ✔ committed
+  (`-p` on every compose call, `down` at exit, finalize moved into `cleanup`).
 - **1a. `--audit` + `--root` guard (NEW HOLE, found 2026-10-05).** `entrypoint.sh`
   RETURNs uid 0 so mitmproxy's own upstream isn't looped back; with `--root` the
   agent *is* uid 0 (`LOCAL_UID=0`), so none of its egress is redirected/logged.

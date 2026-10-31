@@ -195,7 +195,14 @@ Guards:
    JSONL on the sidecar-only mount.
 4. **Session end:** `trigon-up.sh` invokes `lib/audit_summary.py` on the JSONL to
    write the summary; the `cleanup` trap removes generated fragments + CA material
-   (NFR-7). The JSONL + summary remain in `audit-log/`.
+   (NFR-7). The JSONL + summary remain in `audit-log/`. Finalize runs from the
+   `cleanup` trap, so the log is exported even when the session exits non-zero or
+   the launcher is interrupted.
+5. **Isolation between sessions:** every compose call carries a per-launch
+   project, `-p trigon-<name>-<6 hex>`, so each session has its own `audit-gw`,
+   networks and litellm sidecar. Finalize's `rm --stop audit-gw` therefore stops
+   only this session's gateway, and `compose down` at exit removes the session's
+   networks.
 
 ## 8. NFR design mapping
 

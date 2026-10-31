@@ -269,6 +269,19 @@ esac
 # ── Default container name ────────────────────────────────────────────────────
 [[ -z "$NAME" ]] && NAME="trigon-${AGENT}"
 
+# ── Compose project (one per launch) ──────────────────────────────────────────
+# Without -p, compose names the project after the compose files' directory
+# ("compose"), so every session shares one project: networks, the litellm
+# sidecar and the audit gateway (compose-audit-gw-1) collide across concurrent
+# runs, and one session's teardown can stop another's gateway. A per-launch
+# project isolates them; the random suffix keeps two launches with the same
+# --name apart. Compose allows [a-z0-9_-], starting with a letter or digit.
+_proj_slug="$(printf '%s' "$NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')"
+_proj_slug="${_proj_slug#trigon-}"
+_proj_slug="${_proj_slug:0:40}"
+_proj_rand="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+COMPOSE_PROJECT="trigon-${_proj_slug:+${_proj_slug}-}${_proj_rand}"
+
 # ── Provider flag parsing ─────────────────────────────────────────────────────
 # Slash-prefix forms: openrouter/org/model  bedrock/model  openai/model
 # Colon forms:        deepseek:smart  ollama:qwen2.5:7b  litellm:/path/config.yaml
@@ -380,7 +393,21 @@ fi
 TEMP_FILES=()
 MCP_CONFIG_WRITTEN=""
 AUDIT_WORK_DIR=""   # sidecar-only audit log dir (--audit); removed after finalize
+SESSION_LAUNCHED=0  # set by run_compose once a real (non-dry-run) session starts
+CLEANED_UP=0
+# shellcheck disable=SC2329  # invoked via the EXIT trap
 cleanup() {
+  [[ $CLEANED_UP -eq 1 ]] && return
+  CLEANED_UP=1
+  if [[ $SESSION_LAUNCHED -eq 1 ]]; then
+    # Export the audit log before anything below deletes the work dir — also
+    # when the session exited non-zero or the launcher was interrupted.
+    [[ $AUDIT -eq 1 ]] && audit_finalize
+    # Tear down this session's project (sidecars + per-session networks) so
+    # they don't pile up. Needs the generated fragments, so runs before they
+    # are removed.
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+  fi
   for f in "${TEMP_FILES[@]:-}"; do [[ -f "${f:-}" ]] && rm -f "$f"; done
   [[ -n "$AUDIT_WORK_DIR" && -d "$AUDIT_WORK_DIR" ]] && rm -rf "$AUDIT_WORK_DIR"
   if [[ -n "$MCP_CONFIG_WRITTEN" ]]; then
@@ -391,7 +418,11 @@ cleanup() {
     fi
   fi
 }
-trap cleanup EXIT INT TERM
+# INT/TERM exit (and so run cleanup once, via EXIT) instead of resuming the
+# script after cleanup has already removed the fragments.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # ── Extra project mounts ──────────────────────────────────────────────────────
 # base.yml mounts only the first path (/app). Paths 2..N get /app_2../app_N from a
@@ -941,6 +972,7 @@ for i in "${!PROJECT_PATHS[@]}"; do
 done
 echo "Agent: ${AGENT} | Provider: ${PROVIDER_NAME} | Mode: ${MODE} | Model: ${PROVIDER_MODEL:-default}"
 echo "Container: ${NAME} | Settings: ${CLAUDE_SETTINGS_DIR}"
+echo "Compose project: ${COMPOSE_PROJECT}"
 [[ $AIR_GAP -eq 1 ]] && echo "Network: air-gapped"
 echo "Compose: ${COMPOSE_FILES[*]}"
 
@@ -958,6 +990,9 @@ elif [[ $DRY_RUN -eq 1 ]]; then
 else
   echo "Error: Docker Compose not found." >&2; exit 1
 fi
+# Every compose call below (run, the audit finalize, teardown) goes through
+# COMPOSE_CMD, so all of them are scoped to this session's project.
+COMPOSE_CMD+=(-p "$COMPOSE_PROJECT")
 
 # ── Audit gateway image preflight (fail closed) ───────────────────────────────
 # The audit gateway needs a purpose-built image (mitmproxy + iptables). If it is
@@ -972,9 +1007,38 @@ if [[ $AUDIT -eq 1 && $DRY_RUN -eq 0 ]]; then
   fi
 fi
 
+# ── --audit finalize: export the sidecar log + write the session summary ──────
+# Called from cleanup once a real session has run (never under --dry-run), so
+# the log is exported even if the session exits non-zero or the launcher is
+# interrupted — cleanup removes the sidecar-only work dir right after. The log
+# is copied into the project's audit-log/; an absent log means the gateway saw
+# no egress (zero-egress proof, FR-9).
+# shellcheck disable=SC2329  # invoked from cleanup (EXIT trap)
+audit_finalize() {
+  # Stop the gateway before reading its log: a graceful stop makes the addon
+  # flush connections/attempts still open at session end, and the sidecar must
+  # not outlive the session (its log dir is removed in cleanup). COMPOSE_CMD
+  # carries -p, so this only ever touches this session's gateway.
+  "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" rm --stop --force -v audit-gw >/dev/null 2>&1 || true
+  mkdir -p "$AUDIT_LOG_DEST"
+  local ats jsonl
+  ats="$(date -u +%Y%m%dT%H%M%SZ)"
+  jsonl="${AUDIT_LOG_DEST}/session-${NAME}-${ats}.jsonl"
+  if [[ -f "${AUDIT_WORK_DIR}/session.jsonl" ]]; then
+    cp "${AUDIT_WORK_DIR}/session.jsonl" "$jsonl"
+  else
+    : > "$jsonl"
+  fi
+  python3 "${LIB_DIR}/audit_summary.py" "$jsonl" "${AUDIT_LOG_DEST}/summary-${NAME}-${ats}.txt" || true
+  echo "Audit: log + summary written to ${AUDIT_LOG_DEST}"
+}
+
 # ── Launch ────────────────────────────────────────────────────────────────────
 # run_compose runs the assembled command — or, under --dry-run, prints it
-# (shell-quoted) and exits before any container starts.
+# (shell-quoted) and exits before any container starts. A failing session is
+# recorded in run_status rather than tripping set -e, so cleanup still exports
+# the audit log before the exit status is passed on.
+run_status=0
 run_compose() {
   if [[ $DRY_RUN -eq 1 ]]; then
     printf '[dry-run] would run:'
@@ -982,7 +1046,8 @@ run_compose() {
     printf '\n'
     exit 0
   fi
-  "$@"
+  SESSION_LAUNCHED=1
+  "$@" || run_status=$?
 }
 
 if [[ "$AGENT" == "opencode" ]]; then
@@ -1013,28 +1078,6 @@ else
     run_compose "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" run --rm --name "$NAME" \
       "${EXTRA_ARGS[@]}" -it "$SERVICE_NAME"
   fi
-fi
-run_status=$?
-
-# ── --audit finalize: export the sidecar log + write the session summary ──────
-# Runs only after a real session ends (--dry-run exits inside run_compose). The
-# log is copied out of the sidecar-only work dir into the project's audit-log/;
-# an absent log means the gateway saw no egress (zero-egress proof, FR-9).
-if [[ $AUDIT -eq 1 && $DRY_RUN -eq 0 ]]; then
-  # Stop the gateway before reading its log: a graceful stop makes the addon
-  # flush connections/attempts still open at session end, and the sidecar must
-  # not outlive the session (its log dir is removed below).
-  "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" rm --stop --force -v audit-gw >/dev/null 2>&1 || true
-  mkdir -p "$AUDIT_LOG_DEST"
-  _ats="$(date -u +%Y%m%dT%H%M%SZ)"
-  _ajsonl="${AUDIT_LOG_DEST}/session-${NAME}-${_ats}.jsonl"
-  if [[ -f "${AUDIT_WORK_DIR}/session.jsonl" ]]; then
-    cp "${AUDIT_WORK_DIR}/session.jsonl" "$_ajsonl"
-  else
-    : > "$_ajsonl"
-  fi
-  python3 "${LIB_DIR}/audit_summary.py" "$_ajsonl" "${AUDIT_LOG_DEST}/summary-${NAME}-${_ats}.txt" || true
-  echo "Audit: log + summary written to ${AUDIT_LOG_DEST}"
 fi
 
 exit $run_status

@@ -81,3 +81,50 @@ setup() {
   [[ "$output" == *"/p2 → /app_2"* ]]
   [[ "$output" == *"Compose: -f "*"/compose/base.yml -f "* ]]
 }
+
+# ── Per-session compose project (-p) ──────────────────────────────────────────
+# Every compose call carries -p trigon-<name>-<6 hex>, so concurrent sessions
+# get their own networks/sidecars instead of sharing the "compose" project.
+
+@test "dry-run scopes compose to a per-session project" {
+  run "$TRIGON" "$PROJ" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "docker compose -p trigon-claude-code-"[0-9a-f]{6}" -f " ]]
+  [[ "$output" =~ "Compose project: trigon-claude-code-"[0-9a-f]{6} ]]
+}
+
+@test "the compose project name is lowercased and sanitized from --name" {
+  run "$TRIGON" "$PROJ" --name "My Box.1" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ " -p trigon-my-box-1-"[0-9a-f]{6}" " ]]
+}
+
+@test "two launches get different compose projects" {
+  run "$TRIGON" "$PROJ" --dry-run
+  p1="$(grep -o -- '-p trigon-[a-z0-9_-]*' <<<"$output")"
+  run "$TRIGON" "$PROJ" --dry-run
+  p2="$(grep -o -- '-p trigon-[a-z0-9_-]*' <<<"$output")"
+  [ -n "$p1" ]
+  [ "$p1" != "$p2" ]
+}
+
+@test "the litellm sidecar path carries -p" {
+  DEEPSEEK_API_KEY=dummy run "$TRIGON" "$PROJ" --provider deepseek --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ " -p trigon-claude-code-"[0-9a-f]{6}" -f " ]]
+}
+
+@test "the air-gap path carries -p" {
+  run "$TRIGON" "$PROJ" --provider ollama --air-gap --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Air-gap: agent container isolated"* ]]
+  [[ "$output" =~ " -p trigon-claude-code-"[0-9a-f]{6}" -f " ]]
+}
+
+@test "-p coexists with the per-launch /app_2..N mount fragment" {
+  mkdir -p "$BATS_TEST_TMPDIR/proj2"
+  run "$TRIGON" "$PROJ" "$BATS_TEST_TMPDIR/proj2" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ /app_2"* ]]
+  [[ "$output" =~ " -p trigon-claude-code-"[0-9a-f]{6}" -f "[^\ ]*"/base.yml -f "[^\ ]*"trigon."[^\ ]*".yml" ]]
+}
