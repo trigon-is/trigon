@@ -23,28 +23,10 @@ services:
       - XDG_DATA_HOME=/settings/data
       - PLAYWRIGHT_ENABLED=${PLAYWRIGHT_ENABLED:-0}
     volumes:
+      # /app_2 ... /app_N for extra project paths come from a fragment that
+      # trigon-up.sh generates (one bind per path given).
       - ${PROJECT_ROOT}:/app
       - ${CLAUDE_SETTINGS_DIR}:/settings
-      - type: bind
-        source: ${PROJECT_ROOT_2:-/tmp/empty-volume-placeholder}
-        target: /app_2
-        bind:
-          create_host_path: true
-      - type: bind
-        source: ${PROJECT_ROOT_3:-/tmp/empty-volume-placeholder}
-        target: /app_3
-        bind:
-          create_host_path: true
-      - type: bind
-        source: ${PROJECT_ROOT_4:-/tmp/empty-volume-placeholder}
-        target: /app_4
-        bind:
-          create_host_path: true
-      - type: bind
-        source: ${PROJECT_ROOT_5:-/tmp/empty-volume-placeholder}
-        target: /app_5
-        bind:
-          create_host_path: true
     stdin_open: true
     tty: true
     # No network_mode override: default compose network provides NAT outbound

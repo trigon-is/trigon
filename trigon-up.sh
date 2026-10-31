@@ -47,8 +47,8 @@ usage() {
 Usage: trigon-up.sh [PROJECT_PATH ...] [FLAGS]
 
 Project paths:
-  One or more directories to mount. First → /app, subsequent → /app_2 ... /app_5.
-  Defaults to the current directory. Maximum 5.
+  One or more directories to mount. First → /app, subsequent → /app_2, /app_3, ...
+  Defaults to the current directory. Maximum 32.
 
 Provider:
   --provider NAME       anthropic (default), deepseek[:MODEL], openrouter/MODEL,
@@ -145,8 +145,9 @@ for arg in "$@"; do
 done
 
 [[ ${#PROJECT_PATHS[@]} -eq 0 ]] && PROJECT_PATHS+=("$(pwd)")
-if [[ ${#PROJECT_PATHS[@]} -gt 5 ]]; then
-  echo "Error: Maximum 5 project directories supported" >&2; exit 1
+MAX_PROJECT_PATHS=32
+if [[ ${#PROJECT_PATHS[@]} -gt $MAX_PROJECT_PATHS ]]; then
+  echo "Error: Maximum $MAX_PROJECT_PATHS project directories supported" >&2; exit 1
 fi
 
 for i in "${!PROJECT_PATHS[@]}"; do
@@ -154,9 +155,9 @@ for i in "${!PROJECT_PATHS[@]}"; do
   [[ ! -d "$path" ]] && { echo "Error: Directory not found: $path" >&2; exit 1; }
   # -P resolves symlinks so the mount deny-list below sees the real target.
   abs="$(cd "$path" && pwd -P)"
+  [[ "$abs" == *$'\n'* ]] && { echo "Error: project path contains a newline: $path" >&2; exit 1; }
   PROJECT_PATHS[$i]="$abs"
   [[ $i -eq 0 ]] && export PROJECT_ROOT="$abs"
-  export "PROJECT_ROOT_$((i+1))"="$abs"
 done
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
@@ -389,6 +390,29 @@ cleanup() {
   fi
 }
 trap cleanup EXIT INT TERM
+
+# ── Extra project mounts ──────────────────────────────────────────────────────
+# base.yml mounts only the first path (/app). Paths 2..N get /app_2../app_N from a
+# generated fragment, so there are exactly as many mounts as paths — no empty
+# placeholder mounts. Sources are YAML single-quoted ('' escapes ') and $ is
+# doubled because compose interpolates $ in values.
+if [[ ${#PROJECT_PATHS[@]} -gt 1 ]]; then
+  MOUNTS_COMPOSE="$(mktemp_yml)"
+  TEMP_FILES+=("$MOUNTS_COMPOSE")
+  {
+    echo "services:"
+    echo "  ${SERVICE_NAME}:"
+    echo "    volumes:"
+    for ((i = 1; i < ${#PROJECT_PATHS[@]}; i++)); do
+      src="${PROJECT_PATHS[$i]//\'/\'\'}"
+      src="${src//\$/\$\$}"
+      echo "      - type: bind"
+      echo "        source: '${src}'"
+      echo "        target: /app_$((i+1))"
+    done
+  } > "$MOUNTS_COMPOSE"
+  COMPOSE_FILES+=("-f" "$MOUNTS_COMPOSE")
+fi
 
 # ── --root: restore baseline capabilities (threat model G7) ───────────────────
 # base.yml drops ALL capabilities. The non-root default user needs none of them

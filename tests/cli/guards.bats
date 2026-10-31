@@ -62,8 +62,19 @@ setup() {
   [[ "$output" == *"Directory not found"* ]]
 }
 
-@test "more than 5 project directories is rejected" {
-  run "$TRIGON" "$PROJ" "$PROJ" "$PROJ" "$PROJ" "$PROJ" "$PROJ" --dry-run
+@test "more than 32 project directories is rejected" {
+  local paths=()
+  for _ in $(seq 33); do paths+=("$PROJ"); done
+  run "$TRIGON" "${paths[@]}" --dry-run
   [ "$status" -eq 1 ]
-  [[ "$output" == *"Maximum 5"* ]]
+  [[ "$output" == *"Maximum 32"* ]]
+}
+
+@test "32 project directories are accepted and mounted up to /app_32" {
+  local paths=()
+  for _ in $(seq 32); do paths+=("$PROJ"); done
+  run "$TRIGON" "${paths[@]}" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ /app_6"* ]]
+  [[ "$output" == *"→ /app_32"* ]]
 }

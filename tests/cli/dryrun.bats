@@ -67,3 +67,17 @@ setup() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"unknown flag"* ]]
 }
+
+@test "a single project path adds no extra-mounts fragment" {
+  run "$TRIGON" "$PROJ" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Compose: -f "*"/compose/base.yml"$'\n'* ]]
+}
+
+@test "extra project paths add a mounts fragment" {
+  mkdir -p "$BATS_TEST_TMPDIR/p2"
+  run "$TRIGON" "$PROJ" "$BATS_TEST_TMPDIR/p2" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/p2 → /app_2"* ]]
+  [[ "$output" == *"Compose: -f "*"/compose/base.yml -f "* ]]
+}

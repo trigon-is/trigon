@@ -107,7 +107,7 @@ Run `./trigon-up.sh --help` for the full flag reference.
 | `--dry-run` | off | Resolve the provider, assemble compose files and env, print the command that would run, then exit — no container is started. Handy for debugging and used by the test suite |
 | `-h`, `--help` | — | Show usage and exit |
 
-Multiple project directories can be passed as positional arguments (up to 5). The first mounts to `/app`, subsequent ones to `/app_2`…`/app_5`.
+Multiple project directories can be passed as positional arguments (up to 32). The first mounts to `/app`, subsequent ones to `/app_2`, `/app_3`, … in order. Only the directories given are mounted.
 
 ---
 
