@@ -343,3 +343,27 @@ What should I do ? Say yes ? no ?"
 **Context**: CONSTRUCTION — Batch 1 complete and live-verified; next: Batch 2.
 
 ---
+
+## Construction — session close: remaining batches recap
+**Timestamp**: 2026-11-01
+**User Input**: "I have commited, we will end this session soon now, and continue later with the remaining batches. Remind me breifly what is scheduled in those batches."
+**AI Response**: Summarized Batches 2–4 from the COMPLETION PLAN in `aidlc-state.md` (all-TCP redirect + REJECT other egress + IPv6 off; DNS logging; live gates, digest pin, PR). No code changed.
+**Context**: CONSTRUCTION — Batch 1 complete and committed by the user; next session starts Batch 2.
+
+---
+
+## Construction — scope question: is Batch 2–4 behaviour --audit-only?
+**Timestamp**: 2026-11-01
+**User Input**: "I am guessing that this functionality being proposed in batch 2 for example, it would only be for when --audit flag is up, likewise for 3 and 4 right ? So one can expect no disruption of function of trigon without the --audit flag ?"
+**AI Response**: Confirmed Batches 2–4 are --audit-only: rules live in the gateway entrypoint and audit fragment; DNS logging runs in the gateway; digest pin is gateway-only. One exception to flag before acting: if the Batch 3 check finds `--air-gap` leaks DNS, fixing it changes `--air-gap` without `--audit`; the user will be asked first. Noted that Batch 1 already changed every launch (per-session compose project + teardown, audit dir and its parents on the deny-list, clean INT/TERM exit and status passthrough); none should disrupt normal use, per the 18/18 smoke run and the bats suite.
+**Context**: CONSTRUCTION — Batch 1 complete; next session starts Batch 2.
+
+---
+
+## Construction — session close: positioned for Batch 2
+**Timestamp**: 2026-11-01
+**User Input**: "Ok, we will end this session now. Make shure we are well positioned to get going on batch 2 in the next session, wrt. primers and such."
+**AI Response**: Rewrote the top of `aidlc-state.md`: Current Stage now reads "Batch 1 done and live-verified; Batch 2 next". A new "RESUME POINT — start Batch 2" brief covers the files to touch, the step order, that `entrypoint.sh`/`audit_addon.py` are bind-mounted (no image rebuild unless the Dockerfile changes, e.g. `ip6tables`), a verification plan (bats for the fragment plus `tests/smoke/audit-batch2.sh` modelled on batch 1, stub-tested first), the ask-first item (`--air-gap` DNS) and environment facts (tooling in the container, smoke login dir, the unresolved root-owned `/tmp/trigon-smoke` origin). The older resume notes are kept below as history. In `session-start.md`: "as of 2026-11-01", the Batch 2 pointer now references the brief, and the stale "▶" markers for Batch 1 and the August open issues are marked done/resolved. Saved a feedback memory: host verification should be one runnable script, not a checklist. Left uncommitted for the user.
+**Context**: CONSTRUCTION — Batch 1 complete; next session starts Batch 2 from the aidlc-state brief.
+
+---

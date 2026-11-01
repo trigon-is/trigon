@@ -33,12 +33,14 @@ var injection in the launch script.
 
 ---
 
-## Current state (as of 2026-10-31)
+## Current state (as of 2026-11-01)
 
 ### Recent changes (2026-10-31 / 11-01) — M7 `--audit` Batch 1 done, live-verified
 
 - **▶ Next session: start Batch 2** (all-TCP redirect, REJECT other egress, IPv6
-  off). Batch 1 passed the host smoke test `tests/smoke/audit-batch1.sh` 18/18
+  off). Read the "RESUME POINT — start Batch 2" brief at the top of
+  `docs/audit/aidlc-state.md` first: files, steps, no-rebuild note, and the
+  smoke-script plan. Batch 1 passed the host smoke test `tests/smoke/audit-batch1.sh` 18/18
   on 2026-11-01 (needs Docker; one-time login into `~/.trigon-settings-smoke`).
 - Three commits on `feature/audit-inception`:
   1a. `--audit` is refused with `--root` and when the host uid is 0, because the
@@ -56,8 +58,8 @@ var injection in the launch script.
 
 ### Recent changes (2026-10-05) — M7 `--audit` completion plan agreed
 
-- **▶ Next session: start Batch 1 of the plan in `docs/audit/aidlc-state.md`
-  ("COMPLETION PLAN").** Four batches: (1) `--audit`+`--root` guard (new hole:
+- *(Batch 1 done 2026-11-01.)* The plan lives in `docs/audit/aidlc-state.md`
+  ("COMPLETION PLAN"). Four batches: (1) `--audit`+`--root` guard (new hole:
   a root agent bypasses the redirect), per-session compose project name
   (concurrency), log moved to `~/.local/state/trigon/audit/<project>/` with a
   hash chain (issue 2, D7); (2) all-TCP redirect + REJECT everything else
@@ -96,7 +98,8 @@ var injection in the launch script.
   (mitmproxy + iptables; stock image lacked iptables → exit 127); (#2) added
   `DAC_OVERRIDE` to the sidecar caps (cap_drop ALL had blocked root writing the
   host-owned log mount). Gateway now reaches Healthy and a full session runs.
-- **▶ TWO OPEN ISSUES for next session (see `docs/audit/aidlc-state.md` OPEN ISSUES):**
+- **TWO OPEN ISSUES (both resolved since: issue 1 on 2026-09-30, issue 2 by D7
+  on 2026-10-31) (see `docs/audit/aidlc-state.md` OPEN ISSUES):**
   1. **Log records nothing** though egress worked — traffic is bypassing the
      interception. Prime suspects: iptables `nft`-vs-`legacy` backend mismatch
      (rules inert), or the addon emitting in `tcp_end` instead of `tls_clienthello`

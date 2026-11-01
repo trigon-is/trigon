@@ -6,10 +6,58 @@
 - **Start Date**: 2026-08-11T13:36:55Z
 - **Last Updated**: 2026-11-01
 - **Branch**: `feature/audit-inception`
-- **Current Stage**: CONSTRUCTION — Code Generation + Build & Test **complete
-  (host-verified)**; live-container verification parked (no Docker in dev)
+- **Current Stage**: CONSTRUCTION — completion plan, **Batch 1 done and
+  live-verified (2026-11-01); Batch 2 next**
 
-## ▶ RESUME POINT (next session)
+## ▶ RESUME POINT (next session) — start Batch 2
+
+**State:** Batch 1 is committed (`8a328c3`, `cbcf4a6`, `156104e`, `cc2135b`) and
+passed the host smoke test 18/18. The plan and decisions are approved (UDP/QUIC
+blocking accepted 2026-10-05), so Batch 2 needs no new approval gate. Keep this
+file and `audit.md` current, as before.
+
+**Batch 2 brief (details under COMPLETION PLAN below):**
+- **Where the code goes:** mostly `compose/audit/entrypoint.sh`, which today
+  RETURNs uid 0 and REDIRECTs only tcp/80 and tcp/443 (nat OUTPUT), and runs
+  `sysctl -w net.ipv4.conf.all.route_localnet=1 … || true`, which likely fails
+  silently. Also the audit fragment in `trigon-up.sh` (the `--audit` block;
+  add `sysctls:` to `audit-gw` — the agent shares its netns). The "blocked"
+  record goes in `compose/audit/audit_addon.py` (schema v2 chain; add the
+  record type to design §5.1). Wording changes go in `--help`, README and
+  design §3/§8.
+- **Steps:** (1) redirect all agent TCP, keeping lo and uid 0 exempt; (2) a
+  filter OUTPUT REJECT for the agent uid on everything that isn't lo,
+  redirected TCP or DNS (DNS stays allowed until Batch 3), using REJECT so
+  clients fall back fast; (3) IPv6 off via compose `sysctls` plus an
+  `ip6tables` default-deny; (4) move `route_localnet` into compose `sysctls`;
+  (5) dump the REJECT counters into the log as a "blocked" record at shutdown;
+  (6) make the "ALL egress" wording precise.
+- **Rebuild?** No. `entrypoint.sh` and `audit_addon.py` are bind-mounted
+  read-only into the gateway, so edits take effect on the next launch. Only
+  `compose/audit/Dockerfile` changes need `./build.sh --audit-gateway`; that
+  includes adding `ip6tables` if the image lacks it (check iptables-nft).
+- **Verification:** bats `--dry-run` cases for the fragment (sysctls). No
+  Docker in the dev container, so write `tests/smoke/audit-batch2.sh` modelled
+  on `audit-batch1.sh`: one command, why plus PASS/FAIL per step, own settings
+  dir, `--no-sudo`. Its checks should cover: tcp to a non-80/443 port is logged
+  (e.g. `curl` to a :8443 or :22 host), UDP/QUIC and ICMP are refused fast
+  (`ping`, `nc -u`, `curl --http3` if available), no IPv6 route, Claude Code
+  still works, the "blocked" record is present, and the chain still verifies.
+  First test the stubbed paths here against a fake `docker` (the pattern from
+  last session).
+- **Ask the user before:** changing `--air-gap` behaviour without `--audit`
+  (only relevant in Batch 3, if the air-gap DNS check finds a leak).
+- **Known environment facts:** the host repo is `~/projects/Trigon`; the
+  user's working session is named `trigon-dev` and was launched before
+  Batch 1 (project `compose`). The smoke login lives in
+  `~/.trigon-settings-smoke`. Inside the container, bats has to be cloned
+  into the scratchpad, and shellcheck comes from the `shellcheck-py` pip wheel
+  (download + unzip). One loose end: a root-owned session dir appeared in
+  `/tmp/trigon-smoke` on 2026-11-01, origin unknown (not via `--audit`; the
+  guard refused under real sudo). It's deleted; `journalctl _COMM=sudo` would
+  tell.
+
+### Earlier resume notes (history)
 Requirements + Workflow Planning + Application Design **all approved**.
 CONSTRUCTION is implemented and host-verified (bash -n, dry-run behavior, 26 unit
 tests incl. PBT all green). **The `--audit` feature is code-complete.**
