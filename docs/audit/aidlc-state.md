@@ -4,7 +4,7 @@
 - **Project Type**: Brownfield
 - **Feature**: M7 — `--audit` network audit log (+ G6 egress allow-list)
 - **Start Date**: 2026-08-11T13:36:55Z
-- **Last Updated**: 2026-10-31
+- **Last Updated**: 2026-11-01
 - **Branch**: `feature/audit-inception`
 - **Current Stage**: CONSTRUCTION — Code Generation + Build & Test **complete
   (host-verified)**; live-container verification parked (no Docker in dev)
@@ -47,8 +47,8 @@ tests incl. PBT all green). **The `--audit` feature is code-complete.**
   carry a bare IP as `dst_host`; mitmproxy hot-reloads the addon if the file is
   edited mid-session (flushes + loses in-flight SNI).
 
-**▶ COMPLETION PLAN (agreed 2026-10-05). Batch 1 code-complete 2026-10-31; next:
-the Batch 1 host smoke run (below), then Batch 2.**
+**▶ COMPLETION PLAN (agreed 2026-10-05). Batch 1 done and live-verified
+2026-11-01 (host smoke run 18/18 PASS); next: Batch 2.**
 Goal: make "ALL agent egress is logged or blocked" literally true, fix the log
 location (issue 2) and support concurrent sessions. Batches in order:
 
@@ -61,14 +61,18 @@ location (issue 2) and support concurrent sessions. Batches in order:
   `cleanup` deleted the unexported log (1b); INT/TERM resumed the script after
   cleanup (1b). Note: two concurrent sessions still need distinct `--name`s
   (fixed container name), which docker rejects loudly rather than colliding.
-- **Batch 1 host smoke run (for the user):** (1) `--audit --root` and
+- **Batch 1 host smoke run — ✔ 18/18 PASS on the user's Docker host, 2026-11-01**
+  (two concurrent gateways, clean teardown, 25-record log verified, edit + truncation
+  detected, uid-0 guard refused under real sudo). Checks: (1) `--audit --root` and
   `sudo … --audit` refuse with exit 1; (2) two concurrent `--audit --prompt-file`
   sessions with different `--name`s → two `trigon-<name>-<hex>` projects in
   `docker compose ls`, two distinct `…-audit-gw-1` containers, none left after
   exit; (3) logs in `~/.local/state/trigon/audit/<project>-<cksum>/`, dir 0700,
   files 0444, no `audit-log/` in the project, and `lib/audit_summary.py --verify
-  LOG <printed head>` → verified; an edited copy → BROKEN. Exact commands are in
-  `audit.md` (2026-10-31 1c entry).
+  LOG <printed head>` → verified; an edited copy → BROKEN. **Automated as
+  `tests/smoke/audit-batch1.sh`** (host-only; PASS/FAIL per step; safe next to a
+  running Trigon session; first run asks for a one-time login into
+  `~/.trigon-settings-smoke`).
 - **1a. `--audit` + `--root` guard (NEW HOLE, found 2026-10-05).** `entrypoint.sh`
   RETURNs uid 0 so mitmproxy's own upstream isn't looped back; with `--root` the
   agent *is* uid 0 (`LOCAL_UID=0`), so none of its egress is redirected/logged.

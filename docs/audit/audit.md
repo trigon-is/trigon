@@ -301,3 +301,45 @@ head -n -1 ~/.local/state/trigon/audit/a-*/session-*.jsonl > /tmp/t2.jsonl && py
 **Context**: CONSTRUCTION — Batch 1 complete (1a/1b/1c committed); next: host smoke run, then Batch 2.
 
 ---
+
+## Construction — Batch 1 smoke checklist turned into a script
+**Timestamp**: 2026-11-01
+**User Input**: "Ok, I am a bit daunted by the smoke checklist .. and sometimes the commands seem to break into multiple lines, making it hard to see what I am meant to be running .. Some kind of output that makes explicit what is the same line .. and what I am meant to run and why .. would be good. also can I run all this while this trigon, the one we are currently in, is up ?"
+**AI Response**: Replaced the copy-paste checklist with `tests/smoke/audit-batch1.sh`: one command, each step prints its "why" and PASS/FAIL, a final tally. It covers the `--root` refusal, an optional sudo uid-0 refusal (asked first), two concurrent `--audit --prompt-file` sessions (smoke-a/smoke-b) with both gateways seen running side by side, nothing left behind, logs in the state dir with 0700/0444 and no project `audit-log/`, chain verified against the printed head, edit and truncation detected on copies, and the deny-list refusal. The script uses its own settings dir (`~/.trigon-settings-smoke`, one-time `/login`) so the smoke sessions can't refresh or invalidate the OAuth token of the running session. Answered the concurrency question: yes. The running session (`trigon-dev`, launched before 1b, so compose project `compose`) shares no container name, project, network or settings dir with the smoke sessions, and the script only removes what it created. Shellcheck clean. Ran the script here against a simulated `docker` (17 pass, 1 skip); a stub bug (it took `claude -p`'s prompt for the project name) was found and fixed in the stub, not the script. Also removed an empty stray `/settings/.trigon-settings-My Box.1` that a manual dry-run in the previous session had created in the live settings dir. Real-Docker behaviour is still unverified. Not committed yet.
+**Context**: CONSTRUCTION — Batch 1 awaiting host smoke run.
+
+---
+
+## Construction — Batch 1 smoke run: one-time login question
+**Timestamp**: 2026-11-01
+**User Input**: "Ok I did this: [pasted script output: preflight PASS for docker + image, FAIL 'no login for the smoke sessions yet' with the suggested `CLAUDE_SETTINGS_DIR=/home/bergurth/.trigon-settings-smoke /home/bergurth/projects/Trigon/trigon-up.sh /tmp/trigon-smoke/a --name smoke-login` command]
+
+Am I meant to do this that it is asking me to do ?
+run this ?
+CLAUDE_SETTINGS_DIR=/home/bergurth/.trigon-settings-smoke /home/bergurth/projects/Trigon/trigon-up.sh /tmp/trigon-smoke/a --name smoke-login
+in one line ?
+then do the login ?"
+**AI Response**: Confirmed: run it as one line from the repo root (gave the shorter `~/` / `./` form). It starts an interactive session with an empty, separate settings dir; do `/login`, then `/exit`, then re-run `./tests/smoke/audit-batch1.sh`. The login is one-time. Asked the user to paste the full output.
+**Context**: CONSTRUCTION — Batch 1 host smoke run in progress.
+
+---
+
+## Construction — Batch 1 smoke run: root-owned /tmp/trigon-smoke
+**Timestamp**: 2026-11-01
+**User Input**: "Ok I ran it .. it seems to be still runing, prompting me for a y/n: [pasted output: preflight PASS (docker, image, smoke login); hundreds of `rm: cannot remove '/tmp/trigon-smoke/...': Permission denied` lines, incl. /tmp/trigon-smoke/a, /b and a full Claude Code settings tree under /tmp/trigon-smoke/root-settings (.claude.json, .claude/.credentials.json, sessions, npm/_npx playwright, mcp-logs dated 2026-11-01T00:20); `line 62: /tmp/trigon-smoke/prompt.md: Permission denied`; 1a `FAIL expected exit 1 + refusal, got exit 1` with `mkdir: cannot create directory '/tmp/trigon-smoke/settings-root': Permission denied`; then the sudo y/N prompt]
+
+What should I do ? Say yes ? no ?"
+**AI Response**: Told the user to Ctrl-C (the run is invalid). The 1a FAIL is an artifact: the launcher died creating its settings dir under the root-owned `/tmp/trigon-smoke` before reaching the guard. Flagged that `/tmp/trigon-smoke/root-settings` holds a complete session that ran as root (login + session files, ~00:19–00:20 UTC), which the script cannot have created. It most likely came from the `sudo CLAUDE_SETTINGS_DIR=/tmp/trigon-smoke/root-settings …` line of the earlier manual checklist; if that line included `--audit`, the uid-0 guard has a hole. Asked for `history | grep trigon-up | tail -20` to establish that, then `sudo rm -rf /tmp/trigon-smoke` (removes a root-owned login token), then a re-run answering y to the sudo check. Changed the script to stop with a one-line `sudo rm -rf` instruction when it cannot clear `$WORK`, instead of streaming rm errors. Open question pending the user's history: did a `sudo … --audit` launch start a session?
+**Context**: CONSTRUCTION — Batch 1 smoke run; investigating a root-run session.
+
+---
+
+## Construction — Batch 1 smoke run: 18/18 PASS (live-verified)
+**Timestamp**: 2026-11-01
+**User Input**: [pasted `history | grep trigon-up | tail -20`: past project launches plus `2004 CLAUDE_SETTINGS_DIR=~/.trigon-settings-smoke ./trigon-up.sh /tmp/trigon-smoke/a --name smoke-login`, no sudo launch] [pasted `sudo rm -rf /tmp/trigon-smoke`] [pasted full script run: preflight PASS; 1a PASS refused; 1b sudo `y` → PASS refused (exit 1); 2 PASS gateways `trigon-smoke-a-4e9303-audit-gw-1` and `trigon-smoke-b-ef66d6-audit-gw-1` side by side, compose ls shows 2 projects, exit codes 0/0; 2b PASS no containers/networks left; 3 PASS no audit-log/ in either project, log at `/home/bergurth/.local/state/trigon/audit/a-3755779931/session-trigon-smoke-a-4e9303-20261101T004754Z.jsonl`, dir 0700, file 0444, smoke-b has its own log; 3b PASS `verified — 25 records, head sha256:3d220a19178af75f7837ca209536813316a7af1935970eb1ad4c4579bfea0119`; 3c PASS edit → `BROKEN at line 2`, truncation → `MISMATCH`; 3d PASS mount refused; Result: 18 passed, 0 failed, 0 skipped]
+
+"Does this look good ? Everything checking out ?"
+**AI Response**: Yes: Batch 1 (1a/1b/1c) is live-verified. The origin of the root-owned `root-settings` session is still unexplained: there is no `sudo trigon-up` in this shell's history, so it is possibly another terminal. Suggested `sudo journalctl _COMM=sudo --since today | grep -i trigon` to settle it. The guard itself is now proven by a sudo run from the user's account, and the leftover root token is deleted. Suggested checking the summary for example.com/github.com/api.anthropic.com. Reminded that DNS and non-80/443 egress remain unlogged until Batches 2–3. Updated aidlc-state (Batch 1 live-verified, next Batch 2) and session-start.
+**Context**: CONSTRUCTION — Batch 1 complete and live-verified; next: Batch 2.
+
+---

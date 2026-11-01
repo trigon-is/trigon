@@ -35,11 +35,11 @@ var injection in the launch script.
 
 ## Current state (as of 2026-10-31)
 
-### Recent changes (2026-10-31) — M7 `--audit` Batch 1 done (not live-verified)
+### Recent changes (2026-10-31 / 11-01) — M7 `--audit` Batch 1 done, live-verified
 
-- **▶ Next session: run the Batch 1 host smoke checklist** (in
-  `docs/audit/aidlc-state.md` and the 2026-10-31 entry of `docs/audit/audit.md`),
-  then start **Batch 2** (all-TCP redirect, REJECT other egress, IPv6 off).
+- **▶ Next session: start Batch 2** (all-TCP redirect, REJECT other egress, IPv6
+  off). Batch 1 passed the host smoke test `tests/smoke/audit-batch1.sh` 18/18
+  on 2026-11-01 (needs Docker; one-time login into `~/.trigon-settings-smoke`).
 - Three commits on `feature/audit-inception`:
   1a. `--audit` is refused with `--root` and when the host uid is 0, because the
       gateway exempts uid 0 from interception.
