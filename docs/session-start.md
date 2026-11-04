@@ -55,6 +55,32 @@ var injection in the launch script.
       `lib/audit_summary.py --verify LOG [HEAD]` re-checks a log
       (design §5.4 states what the chain does and doesn't prove).
 
+### Ideas from the thesis (2026-11-03) — not planned work, for after the audit batches
+
+- **Tool-call logging.** The thesis's LA1 pilot (`/app_2/pilot/RESULTS_2026-11-02.md`) finds that
+  the room for a covert channel is in tool-call *arguments* (queries, file contents), which a
+  destination-only log can't see. The model's tool calls travel in the provider response body;
+  `--audit-decrypt` could read them but deliberately logs no bodies. Idea: log the parsed tool
+  calls (name + arguments) from provider traffic only, in the same hash-chained log the agent
+  can't reach. Needs a secrets/privacy design first.
+- **Server-side tools bypass the egress log.** Claude Code's WebSearch appears to run on
+  Anthropic's servers (verify), so its queries show up only as traffic to the provider.
+- **Transcripts and hooks are agent-writable.** Claude Code transcripts (`/settings/.claude/projects/`)
+  and hook config sit in the persistent settings dir the agent can modify, so neither is
+  tamper-evident today.
+- **AgentSight integration (2026-11-04)** — eBPF observer (MIT, `eunomia-bpf/agentsight`) that
+  reads LLM traffic as plaintext at the TLS library and logs file/exec effects. It observes only
+  (no containment), so it complements the gateway. Hypothesis: Trigon finishes the enforced
+  gateway (Batches 2–4, G6) and delegates content and local-effects observation to AgentSight
+  instead of building tool-call logging. Not decided; needs the host spike. Analysis + spike plan:
+  `docs/internal/agentsight-feasibility.md`.
+  **Long-term goal (adopted 2026-11-04, not scheduled):** containment + observability together:
+  agent in a microVM (Kata/Firecracker), AgentSight inside the guest kernel (root only in the
+  guest), events streamed out over vsock to the host's hash-chained log, gateway outside the VM.
+  Would become a `--runtime runc|gvisor|kata` axis. See §6a of the feasibility doc.
+- **`--mode lean`** (Lean 4 + mathlib + lean-lsp-mcp baked in). The manual route via `/settings`
+  is in `/app_2/lean_trigon_setup.md`.
+
 
 ### Recent changes (2026-10-05) — M7 `--audit` completion plan agreed
 

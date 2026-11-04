@@ -264,6 +264,8 @@ workflow. Covered by `tests/cli/hardening.bats`.
 - **Is a real sandbox runtime (gVisor / Kata) on the table**, or do we stay with
   stock runc + hardening? This is the line between "raise the bar" and "actually
   defend against kernel escape" (G-class #4).
+  *(2026-11-04: Kata/microVM adopted as a long-term goal, paired with an in-guest
+  observer. See `docs/internal/agentsight-feasibility.md` §6a.)*
 - **Sequencing:** land this threat-model doc first (done), then prototype the
   cheap wins (mount deny-list + hardening defaults) in `trigon-up.sh` and
   `compose/base.yml`.
