@@ -6,10 +6,24 @@
 - **Start Date**: 2026-08-11T13:36:55Z
 - **Last Updated**: 2026-11-17
 - **Branch**: `feature/audit-inception`
-- **Current Stage**: CONSTRUCTION — completion plan, **Batch 2 implemented
-  (2026-11-17), awaiting the host smoke run** (`tests/smoke/audit-batch2.sh`)
+- **Current Stage**: CONSTRUCTION — completion plan, **Batch 2 done and
+  live-verified (2026-11-17, host smoke 30/30); Batch 3 (DNS logging) next**
 
-## ▶ RESUME POINT — Batch 2 awaiting the host smoke run
+## ▶ RESUME POINT — Batch 2 live-verified; start Batch 3
+
+**Host smoke run 2026-11-17: `tests/smoke/audit-batch2.sh` 30/30 PASS.** No
+rebuild was needed (the image has `ip6tables`). Verified live: nat REDIRECT of
+all TCP with no port filter, 4 tagged REJECT rules, `disable_ipv6=1` and
+`route_localnet=1` from compose sysctls; tcp/443 and github.com:22 (SSH banner)
+work and :22 is logged; UDP :443/:123 and ICMP refused instantly with EPERM;
+no IPv6 address or usable route (v6 connect → errno 99); Claude Code works and
+anthropic.com is logged; the blocked record is last (udp=2, icmp=1, matching
+the probes) and in the summary; the 19-record chain verifies against the head;
+clean teardown. Still unverified: decrypt-mode :80/:443 scoping (Batch 4 gate).
+Still open for the user: restrict udp/53 to the embedded resolver now, or leave
+it to Batch 3.
+
+### Batch 2 implementation notes (2026-11-17)
 
 **State (2026-11-17):** Batch 2 steps 1–6 are committed (`d752807` rules +
 sysctls + decrypt port scope, `63a57eb` blocked record, `7d3b6a2` wording,
@@ -181,8 +195,8 @@ location (issue 2) and support concurrent sessions. Batches in order:
 
 **Batch 2 — coverage (needs live checks on the user's Docker):**
 - **Progress (2026-11-17):** steps 1–6 implemented and committed; dev checks
-  green; host smoke run (`tests/smoke/audit-batch2.sh`) pending. Details in
-  the RESUME POINT at the top.
+  green; **host smoke run `tests/smoke/audit-batch2.sh` 30/30 PASS
+  (live-verified 2026-11-17)**. Details in the RESUME POINT at the top.
 - Redirect **all** agent TCP (not just 80/443) to mitmproxy; keep loopback and the
   gateway uid excluded. Destination-only mode passes everything through
   immediately (`ignore_hosts=.*`), so server-speaks-first protocols (SSH, SMTP,

@@ -35,11 +35,11 @@ var injection in the launch script.
 
 ## Current state (as of 2026-11-17)
 
-### Recent changes (2026-11-17) — M7 `--audit` Batch 2 implemented, host run pending
+### Recent changes (2026-11-17) — M7 `--audit` Batch 2 done, live-verified
 
-- **▶ Next: the host smoke run** `tests/smoke/audit-batch2.sh`, then Batch 3
-  (DNS logging). Read the RESUME POINT at the top of `docs/audit/aidlc-state.md`
-  (what to look at if it fails).
+- **▶ Next: Batch 3** (DNS logging). Batch 2 passed the host smoke test
+  `tests/smoke/audit-batch2.sh` 30/30 on 2026-11-17. Open question for the
+  user: restrict udp/53 to Docker's embedded resolver now, or in Batch 3.
 - Batch 2: every agent TCP connection is redirected to mitmproxy whatever the
   port; UDP (incl. QUIC), ICMP and other protocols are REJECTed for the agent
   (udp/53 still allowed); IPv6 off via compose sysctls on `audit-gw` +

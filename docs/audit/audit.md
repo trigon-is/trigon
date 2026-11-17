@@ -409,3 +409,13 @@ What should I do ? Say yes ? no ?"
 **Context**: CONSTRUCTION — Batch 2 implemented; awaiting the user's host smoke run.
 
 ---
+
+## Construction — Batch 2 smoke run: 30/30 PASS (live-verified)
+**Timestamp**: 2026-11-17
+**User Input**: "I ran the smoke-test script: [pasted `tests/smoke/audit-batch2.sh` run: preflight PASS (image has iptables + ip6tables, smoke login); 1 session exited 0; 1b PASS nat redirect of every TCP connection to :8080, no port filter, 4 REJECT rules, IPv6 disabled, route_localnet=1; 2 PASS agent ran probe.py (uid 1000); 2b PASS DNS lookup, https://example.com HTTP/1.1 200 OK, github.com:22 banner SSH-2.0-bdb6c72c; 2c PASS UDP 1.1.1.1:443, UDP 162.159.200.1:123 and ICMP echo refused in 0.0s with Operation not permitted (errno 1); 2d PASS disable_ipv6=1, no IPv6 addresses, no usable IPv6 routes, IPv6 connect fails with Cannot assign requested address (errno 99); 3 PASS log /home/bergurth/.local/state/trigon/audit/net-1030159853/session-trigon-smoke-net-e15bfa-20261117T120756Z.jsonl, ports 22,443, tcp/22 logged, provider traffic logged, last record is the blocked record, udp=2 icmp=1 other=0 ipv6=0, all counters read, summary Blocked line; 3b PASS verified — 19 records, head sha256:4dd8dfc476774e3453f7c72262642742b7f73abc9219d048213fa80443001314; 4 PASS nothing left; Result: 30 passed, 0 failed, 0 skipped]
+
+So everything looks good right ?"
+**AI Response**: Yes: Batch 2 is live-verified, with no rebuild needed. Listed what the run proves (kernel rules and sysctls, coverage, Claude Code working, blocked counts matching the probes, chain, teardown) and what it doesn't: decrypt-mode :80/:443 scoping (Batch 4 gate), DNS still unlogged (Batch 3), and the open udp/53 question (embedded resolver only, now or in Batch 3). Updated aidlc-state (Batch 2 done, Batch 3 next), session-start and this log.
+**Context**: CONSTRUCTION — Batch 2 complete and live-verified; next: Batch 3.
+
+---
