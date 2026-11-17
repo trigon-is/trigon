@@ -95,7 +95,7 @@ Run `./trigon-up.sh --help` for the full flag reference.
 | `--mcp NAME=URL` | — | Attach an external HTTP MCP server (repeatable). Merged into the project `.mcp.json` and restored on exit; a host-gateway route makes a server on the host reachable at `host.docker.internal`. Coexists with `--playwright`/`--playwright-headless`. See [docs/mcp.md](docs/mcp.md). |
 | `--mcp-key VALUE` | — | Bearer token for `--mcp` servers, sent as `Authorization: Bearer VALUE`. Passed via env so the secret is never written into `.mcp.json`. |
 | `--air-gap` | off | Block all outbound internet from the agent container. Requires a local provider (e.g. `--provider ollama:MODEL`); the LiteLLM sidecar retains host access for model calls. Incompatible with `--mcp` (host access is blocked). |
-| `--audit` | off | Route **all** agent egress through an enforced audit gateway and log every destination to `~/.local/state/trigon/audit/<project>/` (hash-chained, outside the project). Unbypassable/complete even for a hostile agent; destination-only depth by default. Opt-in; incompatible with `--playwright` and `--root`, and refused when run as root. See [Network audit log](#network-audit-log) |
+| `--audit` | off | Send agent egress through an enforced audit gateway the agent can't bypass: every outbound TCP connection is logged by destination to `~/.local/state/trigon/audit/<project>/` (hash-chained, outside the project); UDP (incl. QUIC), ICMP and IPv6 are refused. DNS lookups are not logged yet. Destination-only depth by default. Opt-in; incompatible with `--playwright` and `--root`, and refused when run as root. See [Network audit log](#network-audit-log) |
 | `--audit-decrypt` | off | Additionally MITM-decrypt flows whose TLS client trusts the injected session CA (honest flows) for method/path/status. Not an anti-exfil control. Requires `--audit` |
 | `--audit-decrypt-fail-closed` | off | On decrypt refusal (cert pinning), drop the flow instead of passing it through opaque (default). Requires `--audit-decrypt` |
 | `--audit-allow-degraded` | off | Fail-open: launch even if the audit gateway is unhealthy (default is fail-closed). Requires `--audit` |
@@ -223,11 +223,19 @@ don't request it.
 
 Two independent guarantees:
 
-- **Completeness (enforced, unbypassable).** The agent is placed on an internal
-  network and shares the audit gateway's namespace, so a mitmproxy sidecar is its
-  *only* route out — every destination is logged even if the agent ignores proxy
-  settings or is actively hostile. `NET_ADMIN` is scoped to the sidecar only; the
-  agent keeps `cap_drop: ALL`.
+- **Completeness (enforced, unbypassable).** The agent shares the audit
+  gateway's network namespace, so the gateway's rules decide what leaves, even if
+  the agent ignores proxy settings or is actively hostile:
+  - every outbound **TCP** connection, on any port, is redirected to a mitmproxy
+    sidecar and logged by destination;
+  - **UDP** (including QUIC/HTTP-3), **ICMP**, **IPv6** and every other protocol
+    are refused, and the refused packets are counted in the log. REJECT rather
+    than DROP, so clients fall back to TCP at once (Chromium's QUIC does);
+    UDP tools such as VPNs, NTP clients, mosh or `nmap -sU` stop working;
+  - **DNS** lookups are still allowed and **not yet logged**, which leaves
+    DNS as an unlogged channel for now.
+
+  `NET_ADMIN` is scoped to the sidecar only; the agent keeps `cap_drop: ALL`.
 - **Depth (opt-in, cooperative).** `--audit-decrypt` MITM-decrypts flows whose TLS
   client trusts the injected session CA — i.e. *honest* flows — for path/header/
   status detail (secrets and bodies are never written). A pinned or hostile flow
@@ -239,7 +247,7 @@ Output lands **outside the project**, in
 `${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project>/` (set `TRIGON_AUDIT_DIR`
 to move the root). It holds a JSON Lines log plus a human-readable summary
 (hash-chain status, unique destinations, byte totals, decrypted-vs-metadata
-counts). During the session the sidecar writes the log where the agent cannot
+counts, packets refused by protocol). During the session the sidecar writes the log where the agent cannot
 reach it. Afterwards it sits in a directory on the mount deny-list (directory
 0700, files 0444), so no later session's agent can mount it either.
 

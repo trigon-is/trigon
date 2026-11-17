@@ -115,14 +115,17 @@ Network / browser:
                         (requires a local provider, e.g. --provider ollama:MODEL)
 
 Audit (network egress log):
-  --audit               Route ALL agent egress through an enforced audit gateway
-                        (mitmproxy sidecar) and log every destination to
+  --audit               Send the agent's egress through an enforced audit gateway
+                        (mitmproxy sidecar) that the agent cannot bypass, even
+                        if hostile. Every outbound TCP connection, on any port,
+                        is logged by destination; UDP (incl. QUIC), ICMP, IPv6
+                        and other protocols are refused and counted. DNS lookups
+                        are allowed and not logged yet. Log:
                         ${XDG_STATE_HOME:-~/.local/state}/trigon/audit/<project>/
                         (root overridable via TRIGON_AUDIT_DIR) — outside every
                         agent mount. Records are hash-chained; the chain head is
                         printed at session end (keep it to detect later edits).
-                        Unbypassable/complete even for a hostile
-                        agent; destination-only depth by default (no decryption).
+                        Destination-only depth by default (no decryption).
                         Opt-in; incompatible with --playwright (host netns) and
                         --root, and refused when run as root (uid 0 is exempt
                         from interception).
