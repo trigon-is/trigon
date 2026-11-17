@@ -126,7 +126,7 @@ case "$*" in
       case "$a" in *.yml)
         w="$(sed -n 's#^ *- \(.*\):/audit-log$#\1#p' "$a")"
         [ -n "$w" ] && python3 - "$STUB_REPO" "$w/session.jsonl" <<'PY'
-import sys
+import os, sys
 sys.path.insert(0, sys.argv[1] + "/compose/audit")
 import audit_addon as a
 prev = a.GENESIS
@@ -136,6 +136,9 @@ with open(sys.argv[2], "w") as fh:
                              "bytes_out": 1, "bytes_in": 2}, prev)
         fh.write(line + "\n")
         prev = a.line_hash(line)
+    if os.environ.get("STUB_BLOCKED"):   # what done() appends at shutdown
+        fh.write(a.chain_line({"type": "blocked", "blocked": {
+            "udp": {"packets": 12, "bytes": 840}, "icmp": {"packets": 3, "bytes": 252}}}, prev) + "\n")
 PY
       ;; esac
     done
@@ -348,4 +351,14 @@ run_entrypoint() {
   grep -q "verified — 2 records, head sha256:$head" "$sum"
   run python3 "$REPO/lib/audit_summary.py" --verify "$log" "$head"
   [ "$status" -eq 0 ]
+}
+
+@test "the gateway's blocked record is chained and reported in the summary" {
+  stub_docker
+  STUB_BLOCKED=1 PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TRIGON" "$PROJ" --audit
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"Audit: hash chain verified — 3 records"* ]]
+  sum="$(echo "$XDG_STATE_HOME"/trigon/audit/proj-*/summary-trigon-claude-code-*.txt)"
+  grep -q "Total requests:      2" "$sum"      # the blocked record is not a request
+  grep -q "Blocked (packets):   icmp 3, udp 12" "$sum"
 }

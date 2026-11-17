@@ -358,6 +358,133 @@ class TestRedaction(unittest.TestCase):
         self.assertRegex(ts, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 
 
+# `iptables -w -n -v -x -L TRIGON_EGRESS` as iptables-nft prints it, with the
+# rules compose/audit/entrypoint.sh installs.
+IPTABLES_LISTING = """\
+Chain TRIGON_EGRESS (1 references)
+    pkts      bytes target     prot opt in     out     source               destination
+     310    18600 ACCEPT     0    --  *      lo      0.0.0.0/0            0.0.0.0/0
+      52     3120 ACCEPT     0    --  *      *       0.0.0.0/0            0.0.0.0/0            owner UID match 0
+       9      540 ACCEPT     6    --  *      *       0.0.0.0/0            0.0.0.0/0
+       0        0 ACCEPT     17   --  *      *       0.0.0.0/0            0.0.0.0/0            udp dpt:53
+      12      840 REJECT     17   --  *      *       0.0.0.0/0            0.0.0.0/0            /* trigon-blocked:udp */ reject-with icmp-port-unreachable
+       3      252 REJECT     1    --  *      *       0.0.0.0/0            0.0.0.0/0            /* trigon-blocked:icmp */ reject-with icmp-admin-prohibited
+       0        0 REJECT     0    --  *      *       0.0.0.0/0            0.0.0.0/0            /* trigon-blocked:other */ reject-with icmp-admin-prohibited
+"""
+IP6TABLES_LISTING = """\
+Chain TRIGON_EGRESS (1 references)
+    pkts      bytes target     prot opt in     out     source               destination
+       0        0 ACCEPT     0    --  *      lo      ::/0                 ::/0
+       2      160 REJECT     0    --  *      *       ::/0                 ::/0                 /* trigon-blocked:ipv6 */ reject-with icmp6-port-unreachable
+"""
+
+
+class FakeRun:
+    """Stands in for subprocess.run: canned output per command name."""
+
+    def __init__(self, outputs):
+        self.outputs = outputs   # name -> (returncode, stdout, stderr) or an exception
+        self.calls = []
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        out = self.outputs[cmd[0]]
+        if isinstance(out, Exception):
+            raise out
+        rc, stdout, stderr = out
+        return audit_addon.subprocess.CompletedProcess(cmd, rc, stdout, stderr)
+
+
+class TestBlockedRecord(unittest.TestCase):
+    """Batch 2: the REJECT counters land in the log as a "blocked" record."""
+
+    def test_parse_blocked_reads_only_tagged_rules(self):
+        self.assertEqual(audit_addon.parse_blocked(IPTABLES_LISTING), {
+            "udp": {"packets": 12, "bytes": 840},
+            "icmp": {"packets": 3, "bytes": 252},
+            "other": {"packets": 0, "bytes": 0},
+        })
+        self.assertEqual(audit_addon.parse_blocked(IP6TABLES_LISTING),
+                         {"ipv6": {"packets": 2, "bytes": 160}})
+        self.assertEqual(audit_addon.parse_blocked(""), {})
+
+    def test_entrypoint_tags_match_what_the_parser_looks_for(self):
+        # The comments are the only link between the rules and the counters.
+        script = (REPO / "compose" / "audit" / "entrypoint.sh").read_text()
+        tags = set(re.findall(r"--comment trigon-blocked:([a-z0-9]+)", script))
+        self.assertEqual(tags, {"udp", "icmp", "other", "ipv6"})
+        for cmd in audit_addon.BLOCKED_LISTINGS:
+            self.assertIn("-L TRIGON_EGRESS", " ".join(cmd))
+            self.assertIn("%s -N TRIGON_EGRESS" % cmd[0], script)
+
+    def test_blocked_record_merges_both_families(self):
+        run = FakeRun({"iptables": (0, IPTABLES_LISTING, ""),
+                       "ip6tables": (0, IP6TABLES_LISTING, "")})
+        rec = audit_addon.blocked_record(run)
+        self.assertEqual(rec["type"], "blocked")
+        self.assertEqual(sorted(rec["blocked"]), ["icmp", "ipv6", "other", "udp"])
+        self.assertNotIn("error", rec)
+        self.assertEqual(len(run.calls), 2)
+
+    def test_unreadable_counters_are_an_error_not_zeros(self):
+        run = FakeRun({"iptables": (4, "", "Permission denied (you must be root)"),
+                       "ip6tables": FileNotFoundError("ip6tables")})
+        rec = audit_addon.blocked_record(run)
+        self.assertEqual(rec["blocked"], {})
+        self.assertIn("iptables: exit 4 Permission denied", rec["error"])
+        self.assertIn("ip6tables:", rec["error"])
+
+    def test_done_writes_the_blocked_record_last_and_it_chains(self):
+        logger = audit_addon.AuditLogger()
+        logger._fh = io.StringIO()
+        logger._fh.close = lambda: None      # keep the buffer readable
+        logger._emit({"mode": "metadata", "dst_host": "github.com", "dst_port": 22,
+                      "bytes_out": 1, "bytes_in": 2})
+        run = FakeRun({"iptables": (0, IPTABLES_LISTING, ""),
+                       "ip6tables": (0, IP6TABLES_LISTING, "")})
+        real = audit_addon.blocked_record
+        audit_addon.blocked_record = lambda: real(run)
+        try:
+            logger.done()
+        finally:
+            audit_addon.blocked_record = real
+        text = logger._fh.getvalue()
+        self.assertTrue(audit_summary.verify_chain(text)["ok"])
+        last = json.loads(text.splitlines()[-1])
+        self.assertEqual(last["type"], "blocked")
+        self.assertEqual(last["blocked"]["udp"]["packets"], 12)
+
+    def test_summary_counts_connections_and_reports_blocked(self):
+        records = [
+            {"mode": "metadata", "dst_host": "github.com", "dst_port": 22,
+             "bytes_out": 10, "bytes_in": 20, "ts": "2026-11-17T10:00:00.000Z"},
+            {"type": "blocked", "ts": "2026-11-17T10:00:01.000Z",
+             "blocked": {"udp": {"packets": 1, "bytes": 60}}},
+            {"type": "blocked", "ts": "2026-11-17T10:00:02.000Z",
+             "blocked": {"udp": {"packets": 12, "bytes": 840},
+                         "icmp": {"packets": 3, "bytes": 252}}},
+        ]
+        summary = audit_summary.summarize(records)
+        self.assertEqual(summary["total_requests"], 1)
+        self.assertEqual(summary["unique_destinations"], 1)
+        self.assertEqual(summary["blocked"], {"udp": 12, "icmp": 3})   # last wins
+        report = audit_summary.format_summary(summary)
+        self.assertIn("Blocked (packets):   icmp 3, udp 12", report)
+        self.assertIn("github.com", report)
+
+    def test_zero_egress_still_shows_what_was_blocked(self):
+        summary = audit_summary.summarize([{"type": "blocked", "blocked": {
+            "udp": {"packets": 4, "bytes": 1}}, "error": "ip6tables: exit 1"}])
+        report = audit_summary.format_summary(summary)
+        self.assertIn("0 outbound requests", report)
+        self.assertIn("udp 4", report)
+        self.assertIn("counters incomplete: ip6tables: exit 1", report)
+
+    def test_logs_without_a_blocked_record_say_nothing_about_it(self):
+        report = audit_summary.format_summary(audit_summary.summarize([]))
+        self.assertNotIn("Blocked", report)
+
+
 class TestDecryptPortScope(unittest.TestCase):
     """Decrypt mode intercepts :80/:443 only; mitmproxy matches host:port."""
 

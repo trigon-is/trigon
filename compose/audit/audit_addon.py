@@ -17,6 +17,11 @@ Two depth modes, selected by $AUDIT_DECRYPT:
       * pass-through-SNI (default): tunnel opaque, still logged by destination.
       * fail-closed ($AUDIT_DECRYPT_FAIL_CLOSED="1"): the connection is killed.
 
+Every TCP connection reaches the addon, whatever its port; the gateway's
+filter rules REJECT the rest (UDP incl. QUIC, ICMP, IPv6, other protocols).
+At shutdown the addon reads those REJECT counters and appends one
+`type="blocked"` record, so the log also says how much was refused.
+
 Redaction (NFR-1): never records bodies, `Authorization` /
 `Proxy-Authorization` headers, API keys, or query-string tokens. The request
 path is stored with its query string stripped.
@@ -41,6 +46,8 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
+import subprocess
 import threading
 import time
 
@@ -59,6 +66,12 @@ MAX_HELLO_BYTES = 16384
 # passed through: mitmproxy matches ignore_hosts against "host:port", and a
 # server-speaks-first protocol would stall waiting for an HTTP/TLS client.
 NOT_HTTP_PORTS = r":(?!(?:80|443)$)\d+$"
+# The filter rules entrypoint.sh tags with a `trigon-blocked:<name>` comment.
+BLOCKED_COMMENT = re.compile(r"/\* trigon-blocked:([a-z0-9]+) \*/")
+BLOCKED_LISTINGS = (
+    ["iptables", "-w", "-n", "-v", "-x", "-L", "TRIGON_EGRESS"],
+    ["ip6tables", "-w", "-n", "-v", "-x", "-L", "TRIGON_EGRESS"],
+)
 
 
 def _iso_now() -> str:
@@ -101,6 +114,51 @@ def tail_hash(path: str) -> str:
     return line_hash(complete[-1]) if complete else GENESIS
 
 
+def parse_blocked(listing: str) -> dict:
+    """REJECT counters from `iptables -n -v -x -L` output, by comment name.
+
+    Returns {name: {"packets": n, "bytes": n}} for every rule tagged
+    `trigon-blocked:<name>`; other rules and header lines are ignored.
+    """
+    counters = {}
+    for line in listing.splitlines():
+        m = BLOCKED_COMMENT.search(line)
+        fields = line.split()
+        if not m or len(fields) < 2:
+            continue
+        try:
+            packets, nbytes = int(fields[0]), int(fields[1])
+        except ValueError:
+            continue
+        entry = counters.setdefault(m.group(1), {"packets": 0, "bytes": 0})
+        entry["packets"] += packets
+        entry["bytes"] += nbytes
+    return counters
+
+
+def blocked_record(run=subprocess.run) -> dict:
+    """The "blocked" record: REJECT counters from both address families.
+
+    A listing that can't be read is reported in `error` rather than silently
+    giving zeros — zero would read as "nothing was blocked".
+    """
+    counters, errors = {}, []
+    for cmd in BLOCKED_LISTINGS:
+        try:
+            res = run(cmd, capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError) as exc:
+            errors.append("%s: %s" % (cmd[0], exc))
+            continue
+        if res.returncode != 0:
+            errors.append("%s: exit %d %s" % (cmd[0], res.returncode, (res.stderr or "").strip()))
+            continue
+        counters.update(parse_blocked(res.stdout))
+    record = {"ts": _iso_now(), "type": "blocked", "blocked": counters}
+    if errors:
+        record["error"] = "; ".join(errors)
+    return record
+
+
 class AuditLogger:
     def __init__(self) -> None:
         self.log_path = os.environ.get("AUDIT_LOG_FILE", "/audit-log/session.jsonl")
@@ -138,6 +196,9 @@ class AuditLogger:
                 self._emit_tcp(state["flow"])
             for server in list(self._pending.values()):
                 self._emit_attempt(server, "unresolved at shutdown")
+            # Last line: what the filter refused. Counters are cumulative, so on
+            # an addon reload this is a snapshot and the final one supersedes it.
+            self._emit(blocked_record())
             self._fh.flush()
             self._fh.close()
 

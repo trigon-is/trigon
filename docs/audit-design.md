@@ -154,6 +154,24 @@ embedded-`lib/*.py` pattern (`parse_provider.py`, `merge_mcp.py`).
 
 - `mode` marks each record's depth so a mixed log (some flows decrypted, some
   passed through) is self-describing.
+- **`blocked` record (Batch 2).** At shutdown the addon reads the gateway's
+  REJECT counters (`iptables`/`ip6tables -L TRIGON_EGRESS`, the rules tagged
+  `trigon-blocked:<name>`) and appends one more chained record, after the
+  connection records:
+
+  ```jsonc
+  {"v": 2, "prev": "…", "ts": "…", "type": "blocked",
+   "blocked": {"udp":   {"packets": 12, "bytes": 840},
+               "icmp":  {"packets": 3,  "bytes": 252},
+               "other": {"packets": 0,  "bytes": 0},
+               "ipv6":  {"packets": 0,  "bytes": 0}},
+   "error": "…"}                    // only if a counter listing failed
+  ```
+
+  Records without `type` are connection records. Counters are packets, not
+  connections (a retrying client counts several times), and cumulative: an
+  addon reload writes an earlier snapshot, and the summary uses the last one.
+  A failed listing is reported in `error` rather than as zeros.
 - **Never** written: request/response bodies; `Authorization` /
   `Proxy-Authorization` headers; API keys; query-string tokens (NFR-1). Path is
   recorded with the query string stripped.

@@ -8,7 +8,9 @@ Usage:
 Reads the JSONL audit log written by the audit gateway (schema v2, see
 docs/audit-design.md §5) and emits a session summary: hash-chain status and
 head, unique destinations by request count, total bytes, first/last
-timestamps, and decrypted-vs-metadata counts. An empty log yields an explicit
+timestamps, decrypted-vs-metadata counts, and what the gateway refused (the
+"blocked" record: REJECT counters for UDP, ICMP, IPv6 and other protocols). An
+empty log yields an explicit
 zero-egress statement (FR-9). With OUTFILE, the summary goes to that file and a
 one-line chain status goes to stdout (trigon-up.sh prints it); the exit status
 is 1 if the chain does not verify.
@@ -108,13 +110,24 @@ def _to_int(value):
 
 
 def summarize(records):
-    """Aggregate records into a summary dict."""
+    """Aggregate records into a summary dict.
+
+    Connection records count as requests. A `type: "blocked"` record holds the
+    gateway's cumulative REJECT counters; the last one wins (an addon reload
+    can write an earlier snapshot).
+    """
     dests = {}            # host -> {"count", "bytes_out", "bytes_in", "ports"}
     total_out = total_in = 0
     decrypted = metadata = 0
     timestamps = []
+    blocked = None
+    connections = 0
 
     for rec in records:
+        if rec.get("type") == "blocked":
+            blocked = rec
+            continue
+        connections += 1
         host = rec.get("dst_host") or rec.get("dst_ip") or "(unknown)"
         port = rec.get("dst_port")
         entry = dests.setdefault(
@@ -139,7 +152,7 @@ def summarize(records):
 
     timestamps.sort()
     return {
-        "total_requests": len(records),
+        "total_requests": connections,
         "unique_destinations": len(dests),
         "destinations": dests,
         "total_bytes_out": total_out,
@@ -148,7 +161,32 @@ def summarize(records):
         "metadata": metadata,
         "first_ts": timestamps[0] if timestamps else None,
         "last_ts": timestamps[-1] if timestamps else None,
+        "blocked": _blocked_counts(blocked),
+        "blocked_error": blocked.get("error") if blocked else None,
     }
+
+
+def _blocked_counts(rec):
+    """{name: packets} from a blocked record, or None when there is none."""
+    if rec is None:
+        return None
+    counts = {}
+    raw = rec.get("blocked")
+    if isinstance(raw, dict):
+        for name, entry in raw.items():
+            counts[str(name)] = _to_int(entry.get("packets") if isinstance(entry, dict) else entry)
+    return counts
+
+
+def _blocked_line(summary):
+    counts = summary.get("blocked")
+    if counts is None:
+        return None
+    parts = ["%s %d" % (name, counts[name]) for name in sorted(counts)]
+    text = "Blocked (packets):   %s" % (", ".join(parts) or "none")
+    if summary.get("blocked_error"):
+        text += "  [counters incomplete: %s]" % summary["blocked_error"]
+    return text
 
 
 def format_summary(summary, chain=None):
@@ -157,8 +195,11 @@ def format_summary(summary, chain=None):
     if chain is not None:
         lines.append("Hash chain:          %s" % _chain_status(chain))
 
+    blocked = _blocked_line(summary)
     if summary["total_requests"] == 0:
         lines.append("0 outbound requests — zero-egress verified.")
+        if blocked:
+            lines.append(blocked)
         return "\n".join(lines) + "\n"
 
     lines.append("Total requests:      %d" % summary["total_requests"])
@@ -169,6 +210,8 @@ def format_summary(summary, chain=None):
                  % (summary["decrypted"], summary["metadata"]))
     lines.append("First / last:        %s / %s"
                  % (summary["first_ts"] or "-", summary["last_ts"] or "-"))
+    if blocked:
+        lines.append(blocked)
     lines.append("")
     lines.append("Destinations (by request count):")
 
