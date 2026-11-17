@@ -419,3 +419,11 @@ So everything looks good right ?"
 **Context**: CONSTRUCTION — Batch 2 complete and live-verified; next: Batch 3.
 
 ---
+
+## Construction — question: does KVM + AgentSight make Batch 3 unnecessary?
+**Timestamp**: 2026-11-17
+**User Input**: "Remind me of the plans conceived/hatched previously involving use of Trigon integrated with KVM and agent-sight. Would this implementations perhaps make Batch 3 on the audit feature uneccisary ? Did we make any plans on this front ? What is your read on the situation, and what documentation do we have ? Nota bene, There might be something also on it in the Thesis repo."
+**AI Response**: Summarized `docs/internal/agentsight-feasibility.md` (2026-11-04: enforcement/observation split hypothesis, Shapes A/B/C, spike plan, §6a microVM long-term goal adopted but unscheduled), the session-start and threat-model pointers, and the thesis notes (`SESSION_PRIMER.md` KVM idea 10-29, `llm_specific_angle.md` AgentSight section, the KVM scope question to the advisor with no recorded answer; no notes after the 11-05 meeting exist). Read: neither makes Batch 3 unnecessary. AgentSight only observes, and the feasibility doc's own §5 keeps DNS logging in Trigon. An in-guest observer is soft, and the microVM path is unscheduled and would rework the gateway anyway. DNS is the remaining hard-guarantee hole, the same class as the Docker Sandboxes CVE, and LA3 needs it closed. Recommended Batch 3 → Batch 4 → AgentSight runc spike, with KVM after the advisor's scope answer. No code changed.
+**Context**: CONSTRUCTION — Batch 2 complete; Batch 3 next.
+
+---
