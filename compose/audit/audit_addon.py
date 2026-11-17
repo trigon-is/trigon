@@ -10,8 +10,9 @@ Two depth modes, selected by $AUDIT_DECRYPT:
     hooks at all for ignored connections and nothing would be logged. We read
     the SNI from the still-plaintext ClientHello and count bytes per direction.
     Record `mode="metadata"` (host/port + bytes only).
-  - "1" (--audit-decrypt): flows whose client trusts the session CA are
-    intercepted; record `mode="decrypted"` adds method / redacted path / status.
+  - "1" (--audit-decrypt): :80/:443 flows whose client trusts the session CA
+    are intercepted (other ports pass through as in destination-only mode);
+    record `mode="decrypted"` adds method / redacted path / status.
     Flows that refuse the MITM (cert pinning) fall to the decrypt-failure policy:
       * pass-through-SNI (default): tunnel opaque, still logged by destination.
       * fail-closed ($AUDIT_DECRYPT_FAIL_CLOSED="1"): the connection is killed.
@@ -54,6 +55,10 @@ SCHEMA_VERSION = 2
 GENESIS = "0" * 64
 # Stop looking for a ClientHello after this many client bytes (not TLS, or junk).
 MAX_HELLO_BYTES = 16384
+# Decrypt mode intercepts only :80/:443. Other ports (SSH, SMTP, databases) are
+# passed through: mitmproxy matches ignore_hosts against "host:port", and a
+# server-speaks-first protocol would stall waiting for an HTTP/TLS client.
+NOT_HTTP_PORTS = r":(?!(?:80|443)$)\d+$"
 
 
 def _iso_now() -> str:
@@ -115,6 +120,8 @@ class AuditLogger:
             # Destination-only: tunnel everything opaque, but keep the flows
             # observable (tcp_* hooks) so each connection is still logged.
             ctx.options.update(ignore_hosts=[".*"], show_ignored_hosts=True)
+        else:
+            ctx.options.update(ignore_hosts=[NOT_HTTP_PORTS], show_ignored_hosts=True)
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         self._prev = tail_hash(self.log_path)
         # Line-buffered append so records survive an abrupt container stop.

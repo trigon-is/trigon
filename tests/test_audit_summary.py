@@ -16,6 +16,7 @@ import io
 import json
 import os
 import random
+import re
 import sys
 import tempfile
 import unittest
@@ -355,6 +356,17 @@ class TestRedaction(unittest.TestCase):
     def test_iso_timestamp_shape(self):
         ts = audit_addon._iso_now()
         self.assertRegex(ts, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
+
+
+class TestDecryptPortScope(unittest.TestCase):
+    """Decrypt mode intercepts :80/:443 only; mitmproxy matches host:port."""
+
+    def test_only_non_http_ports_are_ignored(self):
+        rex = re.compile(audit_addon.NOT_HTTP_PORTS)
+        for hostport in ("github.com:22", "db:5432", "x:8443", "1.2.3.4:4430", "x:8080"):
+            self.assertTrue(rex.search(hostport), hostport)
+        for hostport in ("api.anthropic.com:443", "example.com:80", "1.2.3.4:443"):
+            self.assertFalse(rex.search(hostport), hostport)
 
 
 if __name__ == "__main__":

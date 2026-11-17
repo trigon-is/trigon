@@ -162,6 +162,130 @@ EOF2
   [ "$(grep ' compose ' "$DOCKER_LOG" | grep -v ' compose version' | grep -vc -- "$proj")" -eq 0 ]
 }
 
+# ── Batch 2: coverage (all TCP redirected, the rest rejected, IPv6 off) ───────
+# --dry-run removes the generated fragment on exit, so these read it through a
+# stub `docker` that copies every compose file out at `run` time.
+capture_fragments() {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/docker" <<'EOF2'
+#!/bin/sh
+case "$*" in
+  *" run --rm "*) for a in "$@"; do case "$a" in *.yml) cat "$a" >> "$FRAGS" ;; esac; done ;;
+esac
+exit 0
+EOF2
+  chmod +x "$BATS_TEST_TMPDIR/bin/docker"
+  export FRAGS="$BATS_TEST_TMPDIR/fragments.yml"
+}
+
+# The sysctls block of the audit-gw service, one entry per line.
+gw_sysctls() {
+  awk '/^  audit-gw:/{gw=1;next} /^  [^ ]/{gw=0} gw&&/^    sysctls:/{s=1;next} gw&&s&&/^      - /{print $2;next} {s=0}' "$FRAGS"
+}
+
+@test "--audit turns IPv6 off and sets route_localnet on the gateway via sysctls" {
+  capture_fragments
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TRIGON" "$PROJ" --audit
+  [ "$status" -eq 0 ]
+  sysctls="$(gw_sysctls)"
+  [[ "$sysctls" == *"net.ipv6.conf.all.disable_ipv6=1"* ]]
+  [[ "$sysctls" == *"net.ipv6.conf.default.disable_ipv6=1"* ]]
+  [[ "$sysctls" == *"net.ipv4.conf.all.route_localnet=1"* ]]
+}
+
+@test "--audit sets the sysctls on the gateway only, never on the agent" {
+  # The agent shares the gateway's netns; docker rejects sysctls there.
+  capture_fragments
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TRIGON" "$PROJ" --audit
+  [ "$status" -eq 0 ]
+  [ "$(awk '/^  [^ ]/{svc=$1} /^    sysctls:/{print svc}' "$FRAGS")" = "audit-gw:" ]
+}
+
+@test "--air-gap --audit keeps the gateway sysctls" {
+  capture_fragments
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TRIGON" "$PROJ" --provider ollama --air-gap --audit
+  [ "$status" -eq 0 ]
+  [[ "$(gw_sysctls)" == *"net.ipv6.conf.all.disable_ipv6=1"* ]]
+}
+
+@test "without --audit no sysctls are added" {
+  capture_fragments
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TRIGON" "$PROJ"
+  [ "$status" -eq 0 ]
+  ! grep -q "sysctls\|disable_ipv6\|route_localnet" "$FRAGS"
+}
+
+@test "the gateway entrypoint redirects all TCP and rejects other egress" {
+  ep="$REPO/compose/audit/entrypoint.sh"
+  # no port filter on the redirect any more (Batch 1 had :80/:443 only)
+  grep -q -- '-t nat -A TRIGON_AUDIT -p tcp -j REDIRECT' "$ep"
+  ! grep -q -- '--dport 443' "$ep"
+  # lo and uid 0 are exempt before the redirect / the rejects
+  [ "$(grep -n 'TRIGON_AUDIT -o lo -j RETURN' "$ep" | cut -d: -f1)" -lt "$(grep -n 'j REDIRECT' "$ep" | cut -d: -f1)" ]
+  [ "$(grep -n '^iptables -A TRIGON_EGRESS -o lo -j ACCEPT' "$ep" | cut -d: -f1)" -lt "$(grep -n 'trigon-blocked:udp' "$ep" | cut -d: -f1)" ]
+  grep -q -- '-p udp --dport 53 -j ACCEPT' "$ep"
+  grep -q -- 'trigon-blocked:other -j REJECT' "$ep"
+  grep -q -- '^ip6tables -A TRIGON_EGRESS -m comment --comment trigon-blocked:ipv6 -j REJECT' "$ep"
+  # REJECT, never DROP: clients must fall back to TCP at once
+  ! grep -q -- '-j DROP' "$ep"
+  # the old silent sysctl -w is gone (it moved into the compose fragment)
+  ! grep -q '^[^#]*sysctl -w' "$ep"
+}
+
+# Run the real entrypoint under /bin/sh with iptables, ip6tables and mitmdump
+# replaced by loggers (gw_fakes). `cat` is shadowed only for the disable_ipv6
+# file, so the IPv6 check sees $IPV6_OFF instead of this machine's setting.
+gw_fakes() {
+  mkdir -p "$BATS_TEST_TMPDIR/gw"
+  for t in iptables ip6tables mitmdump; do
+    printf '#!/bin/sh\necho "%s $*" >> "$GW_LOG"\n' "$t" > "$BATS_TEST_TMPDIR/gw/$t"
+  done
+  cat > "$BATS_TEST_TMPDIR/gw/cat" <<'EOF2'
+#!/bin/sh
+[ "$1" = /proc/sys/net/ipv6/conf/all/disable_ipv6 ] && { echo "$IPV6_OFF"; exit 0; }
+exec /bin/cat "$@"
+EOF2
+  chmod +x "$BATS_TEST_TMPDIR/gw/"*
+  export GW_LOG="$BATS_TEST_TMPDIR/gw.log"
+  : > "$GW_LOG"
+}
+
+run_entrypoint() {
+  PATH="$BATS_TEST_TMPDIR/gw:$PATH" run /bin/sh "$REPO/compose/audit/entrypoint.sh"
+}
+
+@test "the gateway entrypoint installs its rules, then starts mitmdump" {
+  gw_fakes
+  IPV6_OFF=1 run_entrypoint
+  [ "$status" -eq 0 ]
+  # all nat + filter rules go in before mitmdump starts
+  [ "$(tail -1 "$GW_LOG" | cut -d' ' -f1)" = "mitmdump" ]
+  grep -qx 'iptables -t nat -A TRIGON_AUDIT -p tcp -j REDIRECT --to-port 8080' "$GW_LOG"
+  grep -qx 'iptables -t nat -A OUTPUT -p tcp -j TRIGON_AUDIT' "$GW_LOG"
+  grep -qx 'iptables -A OUTPUT -j TRIGON_EGRESS' "$GW_LOG"
+  grep -qx 'ip6tables -A OUTPUT -j TRIGON_EGRESS' "$GW_LOG"
+  # each chain is filled before it is hooked into OUTPUT
+  [ "$(grep -n 'trigon-blocked:other' "$GW_LOG" | cut -d: -f1)" -lt "$(grep -n '^iptables -A OUTPUT' "$GW_LOG" | cut -d: -f1)" ]
+  [ "$(grep -n 'trigon-blocked:ipv6' "$GW_LOG" | cut -d: -f1)" -lt "$(grep -n '^ip6tables -A OUTPUT' "$GW_LOG" | cut -d: -f1)" ]
+  [ "$(grep -c 'REJECT' "$GW_LOG")" -eq 4 ]
+}
+
+@test "the gateway entrypoint refuses to start while IPv6 is on" {
+  gw_fakes
+  IPV6_OFF=0 run_entrypoint
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"IPv6 is not disabled"* ]]
+  [ ! -s "$GW_LOG" ]                         # no rules, no mitmdump
+}
+
+@test "the gateway entrypoint fails closed when a rule can't be installed" {
+  gw_fakes
+  printf '#!/bin/sh\nexit 4\n' > "$BATS_TEST_TMPDIR/gw/ip6tables"   # e.g. the kernel refuses the rule
+  IPV6_OFF=1 run_entrypoint
+  [ "$status" -ne 0 ]
+  ! grep -q '^mitmdump' "$GW_LOG"
+}
+
 # ── D7: log location, permissions, hash chain ────────────────────────────────
 
 @test "--audit logs to the XDG state dir, not into the project" {

@@ -828,9 +828,10 @@ fi
 
 # ── --audit (network audit log) ───────────────────────────────────────────────
 # Enforced egress gateway: the agent shares the audit-gw netns
-# (network_mode: service:audit-gw), so ALL its outbound traffic is transparently
-# intercepted by mitmproxy in the sidecar and logged — unbypassable even by a
-# hostile agent (completeness). Default depth is destination-only (SNI + bytes);
+# (network_mode: service:audit-gw) and cannot route around it. Every outbound
+# TCP connection is transparently redirected to mitmproxy in the sidecar and
+# logged; everything else (UDP incl. QUIC, ICMP, IPv6) is rejected and counted,
+# except DNS, which is not logged yet (compose/audit/entrypoint.sh, G6). Default depth is destination-only (SNI + bytes);
 # --audit-decrypt adds TLS interception for CA-accepting (honest) flows. See
 # docs/audit-design.md. NET_ADMIN is scoped to the sidecar (NFR-9); the log lives
 # in a sidecar-only dir the agent cannot reach (NFR-4).
@@ -914,6 +915,15 @@ if [[ $AUDIT -eq 1 ]]; then
     echo "    cap_add:"
     echo "      - NET_ADMIN"     # iptables REDIRECT for transparent interception
     echo "      - DAC_OVERRIDE"  # root writes log/CA into the host-owned bind mount
+    # Set here, not in the entrypoint: /proc/sys is read-only inside the
+    # container. The agent shares this netns, so these apply to it too. IPv6
+    # off: the gateway's rules cover IPv4, and v6 must not be a way around them
+    # (G6; entrypoint.sh refuses to start if it is still on). route_localnet
+    # lets the kernel deliver REDIRECTed packets to the local listener.
+    echo "    sysctls:"
+    echo "      - net.ipv6.conf.all.disable_ipv6=1"
+    echo "      - net.ipv6.conf.default.disable_ipv6=1"
+    echo "      - net.ipv4.conf.all.route_localnet=1"
     echo "    entrypoint: [\"/bin/sh\", \"/opt/audit/entrypoint.sh\"]"
     echo "    environment:"
     echo "      - AUDIT_DECRYPT=${AUDIT_DECRYPT}"
