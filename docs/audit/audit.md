@@ -427,3 +427,11 @@ So everything looks good right ?"
 **Context**: CONSTRUCTION — Batch 2 complete; Batch 3 next.
 
 ---
+
+## Construction — session close: positioned for Batch 3
+**Timestamp**: 2026-11-17
+**User Input**: "Ok, let's start on Batch 3 then, first prepare, then give me a good prompt to get you started on batch 3, then I will clear your context and give you the prompt."
+**AI Response**: Replaced the resume point in `aidlc-state.md` with a "start Batch 3" brief: the DNS hole (embedded resolver via loopback, any-resolver udp/53 allow, tcp/53 loopback exemption), the planned fix (mitmproxy dns-mode listener, nat insert ahead of Docker's DOCKER_OUTPUT for udp+tcp :53, drop the udp/53 accept, `type: "dns"` record + summary, healthcheck, wording), the ask-first `--air-gap` leak check, the rebuild expectation, the verification plan (`audit-batch3.sh`, batch 2 regression) and environment facts. Kept the Batch 2 result as history. Pointed `session-start.md` at it. Gave the user a start prompt for the next session.
+**Context**: CONSTRUCTION — Batch 2 complete; next session starts Batch 3.
+
+---
