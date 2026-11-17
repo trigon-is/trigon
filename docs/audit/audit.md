@@ -367,3 +367,45 @@ What should I do ? Say yes ? no ?"
 **Context**: CONSTRUCTION — Batch 1 complete; next session starts Batch 2 from the aidlc-state brief.
 
 ---
+
+## Construction — Batch 2: implementation (steps 1–6)
+**Timestamp**: 2026-11-17
+**User Input**: "We're starting Batch 2 of the M7 --audit feature in Trigon (/app, branch
+  feature/audit-inception). The thesis repo is at /app_2, for reference only:
+  don't edit it.
+ 
+  1. Read /app/CLAUDE.md, then the "RESUME POINT — start Batch 2" brief at the top of
+     /app/docs/audit/aidlc-state.md, and the Batch 2 section of its COMPLETION PLAN.
+     The plan is already approved, so there's no new approval gate. Keep
+     aidlc-state.md and audit.md current as in earlier batches.
+  2. Implement Batch 2 steps 1-6 as in the brief:
+     - redirect all agent TCP, keeping lo and uid 0 exempt
+     - REJECT all other egress for the agent uid (DNS stays allowed until Batch 3)
+     - IPv6 off (compose sysctls + ip6tables default-deny)
+     - route_localnet via compose sysctls
+     - a "blocked" record with the REJECT counters at shutdown (add it to design §5.1)
+     - precise "ALL egress" wording in --help, the README and design §3/§8
+     If the gateway image lacks ip6tables, say so: that needs
+     ./build.sh --audit-gateway on the host.
+  3. Run the checks from CLAUDE.md that work without Docker (bash -n, shellcheck,
+     py_compile, unittest, bats via a cloned bats-core). Add --dry-run bats cases
+     for the new fragment. Test the stubbed paths against a fake docker, as in
+     Batch 1. Say which checks you skipped.
+  4. Write tests/smoke/audit-batch2.sh, modelled on audit-batch1.sh. Its checks are
+     listed in the brief: non-80/443 TCP logged, UDP/QUIC/ICMP refused fast, no
+     IPv6 route, Claude Code still works, the "blocked" record present, the chain
+     verifies.
+  5. Commit in small steps that explain the why. Don't push. At the end, give me
+     the exact host commands to run: a rebuild if one is needed, then the smoke
+     script. Stop there; I'll report the results back.
+  
+  Don't claim anything works in a real container until I've run the smoke test.
+  If something in the brief turns out wrong or unclear, or touches --air-gap
+  behaviour without --audit, ask before deciding.
+
+  The thesis mount isn't needed for Batch 2. It's handy if the session drifts toward the AgentSight
+  follow-up, which uses the thesis's tool-call findings."
+**AI Response**: Implemented Batch 2 steps 1–6 in four commits. `d752807`: `entrypoint.sh` now uses a nat chain `TRIGON_AUDIT` (lo and uid 0 RETURN, all other TCP REDIRECT :8080) and a filter chain `TRIGON_EGRESS` (accept lo, uid 0, TCP, udp/53; REJECT udp / icmp / everything else, tagged `trigon-blocked:<name>`), plus an ip6tables chain that rejects all but lo; it refuses to start unless `disable_ipv6=1`; `sysctl -w` removed. `trigon-up.sh` adds `sysctls:` (IPv6 off for all/default, `route_localnet=1`) to `audit-gw` only. Decrypt mode intercepts only :80/:443 (`ignore_hosts` regex on host:port + `show_ignored_hosts`), so SSH and similar pass through. `63a57eb`: at `done()` the addon reads `iptables`/`ip6tables -L TRIGON_EGRESS` counters and appends a chained `type:"blocked"` record (errors reported, not zeros); `audit_summary.py` excludes it from requests and prints a `Blocked (packets):` line; design §5.1 documents it. `7d3b6a2`: precise wording in `--help`, README, design §1/§3.1/C2/§8/§9 (TCP logged on any port; UDP/QUIC/ICMP/IPv6 refused and counted; DNS allowed and unlogged until Batch 3). `aee9f8d`: `tests/smoke/audit-batch2.sh`. Checks: 65/65 bats (new: fragment sysctls read via stub docker, since `--dry-run` deletes the fragment on exit; real entrypoint run under /bin/sh with fake iptables/mitmdump; blocked record through finalize), 47 python tests, shellcheck (only the old SC2004), `bash -n`/`sh -n`, py_compile; every commit passes alone; smoke script exercised against a fake docker (30/30 good; expected FAILs for a Batch 1-style gateway; missing-ip6tables preflight). Not verified in a real container. Rebuild judged unnecessary (Debian `iptables` ships `ip6tables`; the smoke preflight checks it). Noted as an open choice rather than decided: restricting udp/53 to the embedded resolver. No `--air-gap`-without-`--audit` behaviour touched.
+**Context**: CONSTRUCTION — Batch 2 implemented; awaiting the user's host smoke run.
+
+---

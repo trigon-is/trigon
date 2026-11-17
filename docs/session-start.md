@@ -33,14 +33,23 @@ var injection in the launch script.
 
 ---
 
-## Current state (as of 2026-11-01)
+## Current state (as of 2026-11-17)
 
-### Recent changes (2026-10-31 / 11-01) — M7 `--audit` Batch 1 done, live-verified
+### Recent changes (2026-11-17) — M7 `--audit` Batch 2 implemented, host run pending
 
-- **▶ Next session: start Batch 2** (all-TCP redirect, REJECT other egress, IPv6
-  off). Read the "RESUME POINT — start Batch 2" brief at the top of
-  `docs/audit/aidlc-state.md` first: files, steps, no-rebuild note, and the
-  smoke-script plan. Batch 1 passed the host smoke test `tests/smoke/audit-batch1.sh` 18/18
+- **▶ Next: the host smoke run** `tests/smoke/audit-batch2.sh`, then Batch 3
+  (DNS logging). Read the RESUME POINT at the top of `docs/audit/aidlc-state.md`
+  (what to look at if it fails).
+- Batch 2: every agent TCP connection is redirected to mitmproxy whatever the
+  port; UDP (incl. QUIC), ICMP and other protocols are REJECTed for the agent
+  (udp/53 still allowed); IPv6 off via compose sysctls on `audit-gw` +
+  ip6tables reject; `route_localnet` moved to sysctls; a `type: "blocked"`
+  record with the REJECT counters ends each log; decrypt mode intercepts only
+  :80/:443. `--help`/README/design say exactly that, DNS gap included.
+
+### Earlier (2026-10-31 / 11-01) — M7 `--audit` Batch 1 done, live-verified
+
+- Batch 1 passed the host smoke test `tests/smoke/audit-batch1.sh` 18/18
   on 2026-11-01 (needs Docker; one-time login into `~/.trigon-settings-smoke`).
 - Three commits on `feature/audit-inception`:
   1a. `--audit` is refused with `--root` and when the host uid is 0, because the

